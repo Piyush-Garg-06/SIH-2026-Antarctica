@@ -394,20 +394,22 @@ export default function App() {
     };
   }, [activeStation]);
 
-  // Automated Emergency Mode sync based on Station Health Score <= 40%
+  // Automated Emergency Mode sync with hysteresis (Engage at <=40%, Stand-down at >55%)
   useEffect(() => {
     if (!telemetry) return;
     const health = telemetry.healthScore ?? 100;
-    const isCriticalHealth = health <= 40 || telemetry.activeScenario === 'fuel_shortage' || telemetry.activeScenario === 'water_shortage';
+    const activeSc = telemetry.activeScenario;
+    const isStressScenario = activeSc === 'fuel_shortage' || activeSc === 'water_shortage' || activeSc === 'battery_failure' || activeSc === 'equipment_overload';
+    const isCriticalHealth = health <= 40 || isStressScenario;
 
     if (isCriticalHealth && !emergencyMode) {
       setEmergencyMode(true);
       addSystemLog(`AUTOMATED EMERGENCY PROTOCOL ENGAGED: Station Health dropped to ${health}%. Non-essential auxiliary loads shed.`);
-    } else if (!isCriticalHealth && emergencyMode && health > 40 && (telemetry.activeScenario === 'none' || !telemetry.activeScenario)) {
+    } else if (!isCriticalHealth && emergencyMode && health > 55 && (activeSc === 'none' || !activeSc)) {
       setEmergencyMode(false);
       addSystemLog(`AUTOMATED EMERGENCY STAND-DOWN: Station Health restored to ${health}%. Normal operations resumed.`);
     }
-  }, [telemetry?.healthScore, telemetry?.activeScenario]);
+  }, [telemetry?.healthScore, telemetry?.activeScenario, emergencyMode]);
 
   // Fetch initial telemetry and history when station changes
   useEffect(() => {
@@ -472,11 +474,11 @@ export default function App() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const lastBeepTimeRef = useRef<number>(0);
 
-  const playBeepSound = (freq = 880, duration = 0.12, type: OscillatorType = 'sine') => {
+  const playBeepSound = (freq = 750, duration = 0.1, type: OscillatorType = 'sine') => {
     if (!soundEnabled) return;
     const now = Date.now();
-    // Debounce to prevent overlapping/distorted beep sound artifacts
-    if (now - lastBeepTimeRef.current < 450) return;
+    // Strict 1.2-second minimum gap between any beep sounds across the app
+    if (now - lastBeepTimeRef.current < 1200) return;
     lastBeepTimeRef.current = now;
 
     try {
@@ -494,9 +496,9 @@ export default function App() {
       osc.type = type;
       osc.frequency.setValueAtTime(freq, ctx.currentTime);
 
-      // Smooth gain envelope (soft attack & decay) to eliminate harsh audio popping
+      // Smooth gain envelope (soft attack & exponential decay)
       gain.gain.setValueAtTime(0.001, ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.05, ctx.currentTime + 0.02);
+      gain.gain.linearRampToValueAtTime(0.04, ctx.currentTime + 0.02);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
 
       osc.connect(gain);
@@ -509,22 +511,17 @@ export default function App() {
     }
   };
 
-  // Persistent alarm sound during critical health / emergency mode
+  // Dedicated single-timer alarm loop for emergency mode
   useEffect(() => {
-    if (!soundEnabled) return;
+    if (!soundEnabled || !emergencyMode) return;
 
-    const isScenarioActive = telemetry && telemetry.activeScenario && telemetry.activeScenario !== 'none';
-    const isCriticalHealth = telemetry && (telemetry.healthScore ?? 100) < 50;
-    const isStationCritical = emergencyMode || isCriticalHealth || isScenarioActive;
+    // Pulse a single calm beep every 5 seconds during active emergency mode
+    const alarmInterval = setInterval(() => {
+      playBeepSound(750, 0.1, 'sine');
+    }, 5000);
 
-    if (isStationCritical) {
-      const alarmInterval = setInterval(() => {
-        playBeepSound(880, 0.12, 'sine');
-      }, 4000); // Smooth 4-second pulse
-
-      return () => clearInterval(alarmInterval);
-    }
-  }, [emergencyMode, (telemetry?.healthScore ?? 100) < 50, telemetry?.activeScenario, soundEnabled]);
+    return () => clearInterval(alarmInterval);
+  }, [emergencyMode, soundEnabled]);
 
   // Helper to trigger system event log
   const addSystemLog = (message: string) => {
