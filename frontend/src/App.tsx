@@ -592,7 +592,14 @@ export default function App() {
   // Execute What-if Scenario
   const runScenario = (scenarioName: string) => {
     addSystemLog(`Activating Simulation: ${scenarioName.toUpperCase()}`);
-    if (linkStatus === 'online') {
+    
+    // Auto disconnect uplink if SATCOM Blackout scenario is triggered
+    if (scenarioName === 'comms_outage') {
+      setLinkStatus('offline');
+      addSystemLog("📡 [SATCOM BLACKOUT] Ku-Band Transceiver Disconnected. Link Forced OFFLINE. Local Store & Forward Queue active.");
+    }
+
+    if (linkStatus === 'online' && scenarioName !== 'comms_outage') {
       fetch(`${BACKEND_URL}/api/simulations/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -610,9 +617,6 @@ export default function App() {
     } else {
       // Local client simulation trigger
       setActiveScenario(scenarioName);
-      if (scenarioName === 'comms_outage') {
-        setLinkStatus('offline');
-      }
       // Generate mock 7 day forecast data
       const mockTimeline = Array.from({ length: 7 }, (_, i) => ({
         day: i,
@@ -629,26 +633,27 @@ export default function App() {
 
   // Reset scenario back to baseline
   const resetScenario = () => {
-    if (linkStatus === 'online') {
-      fetch(`${BACKEND_URL}/api/simulations/stop`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stationId: activeStation })
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (!data.success) {
-            throw new Error(data.error || 'Simulation reset failed');
-          }
-          setActiveScenario('none');
-          setForecastTimeline([]);
-        })
-        .catch(err => console.error(err));
-    } else {
-      setActiveScenario('none');
-      setForecastTimeline([]);
-      addSystemLog("[OFFLINE] Cleared simulation. Returning telemetry to baseline.");
+    const wasCommsOutage = activeScenario === 'comms_outage';
+    if (wasCommsOutage) {
+      setLinkStatus('online');
+      addSystemLog("⚡ [SATCOM RECONNECTED] Satellite Transceiver Link Restored ONLINE. Auto-synced queued telemetry packets to Mainland Gateway.");
     }
+
+    fetch(`${BACKEND_URL}/api/simulations/stop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stationId: activeStation })
+    })
+      .then(res => res.json())
+      .then(data => {
+        setActiveScenario('none');
+        setForecastTimeline([]);
+      })
+      .catch(() => {
+        setActiveScenario('none');
+        setForecastTimeline([]);
+        addSystemLog("Cleared simulation. Telemetry returned to baseline.");
+      });
   };
 
   // 4. AI Copilot chat submissions
