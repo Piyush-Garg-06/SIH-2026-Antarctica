@@ -599,8 +599,8 @@ export default function App() {
     }
   };
 
-  // Professional SCADA / Industrial Command Center Emergency Alarm (Sharp Dual 880Hz Staccato Pulse)
-  const playIndustrialEmergencyAlarm = () => {
+  // Tactical Critical Risk & Hazard Warning Siren (High-Risk Dissonant Tritone Pulse: 880Hz <-> 622Hz)
+  const playRiskHazardSiren = () => {
     if (!soundEnabled) return;
     try {
       if (!audioCtxRef.current) {
@@ -612,46 +612,41 @@ export default function App() {
       }
 
       const now = ctx.currentTime;
+      // Dissonant Risk Warning Frequencies (880Hz & 622Hz Tritone Hazard Pattern)
+      const freqs = [880, 622, 880, 622];
 
-      // Pulse 1: Solid 880 Hz High-Priority Industrial Tone (0.09s)
-      const osc1 = ctx.createOscillator();
-      const gain1 = ctx.createGain();
-      osc1.type = 'square';
-      osc1.frequency.setValueAtTime(880, now);
-      gain1.gain.setValueAtTime(0.001, now);
-      gain1.gain.linearRampToValueAtTime(0.04, now + 0.01);
-      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
-      osc1.connect(gain1);
-      gain1.connect(ctx.destination);
-      osc1.start(now);
-      osc1.stop(now + 0.09);
+      freqs.forEach((freq, idx) => {
+        const startTime = now + idx * 0.08;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
 
-      // Pulse 2: Solid 880 Hz High-Priority Industrial Tone (0.09s) after 110ms gap
-      const osc2 = ctx.createOscillator();
-      const gain2 = ctx.createGain();
-      osc2.type = 'square';
-      osc2.frequency.setValueAtTime(880, now + 0.11);
-      gain2.gain.setValueAtTime(0.001, now + 0.11);
-      gain2.gain.linearRampToValueAtTime(0.04, now + 0.12);
-      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.20);
-      osc2.connect(gain2);
-      gain2.connect(ctx.destination);
-      osc2.start(now + 0.11);
-      osc2.stop(now + 0.20);
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(freq, startTime);
+
+        gain.gain.setValueAtTime(0.001, startTime);
+        gain.gain.linearRampToValueAtTime(0.05, startTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.07);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(startTime);
+        osc.stop(startTime + 0.07);
+      });
     } catch (e) {
       // Audio context blocked
     }
   };
 
-  // Industrial SCADA Emergency Alarm Loop (pulses sharp dual staccato alert every 1.8 seconds)
+  // Critical Risk Hazard Emergency Alarm Loop (pulses 4-tone hazard alert every 1.6 seconds)
   useEffect(() => {
     if (!soundEnabled || !emergencyMode) return;
 
-    playIndustrialEmergencyAlarm();
+    playRiskHazardSiren();
 
     const alarmInterval = setInterval(() => {
-      playIndustrialEmergencyAlarm();
-    }, 1800);
+      playRiskHazardSiren();
+    }, 1600);
 
     return () => clearInterval(alarmInterval);
   }, [emergencyMode, soundEnabled]);
