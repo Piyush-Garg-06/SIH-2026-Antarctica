@@ -599,8 +599,8 @@ export default function App() {
     }
   };
 
-  // High-Intensity Polar Base Red Alert Siren (Pitch-Sweep Double Burst Siren)
-  const playIntenseRedAlertSiren = () => {
+  // Professional SCADA / Industrial Command Center Emergency Alarm (Sharp Dual 880Hz Staccato Pulse)
+  const playIndustrialEmergencyAlarm = () => {
     if (!soundEnabled) return;
     try {
       if (!audioCtxRef.current) {
@@ -613,51 +613,45 @@ export default function App() {
 
       const now = ctx.currentTime;
 
-      // Burst 1: Pitch Sweep Siren (480Hz -> 1050Hz)
+      // Pulse 1: Solid 880 Hz High-Priority Industrial Tone (0.09s)
       const osc1 = ctx.createOscillator();
       const gain1 = ctx.createGain();
-      osc1.type = 'sawtooth';
-      osc1.frequency.setValueAtTime(480, now);
-      osc1.frequency.exponentialRampToValueAtTime(1050, now + 0.15);
-
+      osc1.type = 'square';
+      osc1.frequency.setValueAtTime(880, now);
       gain1.gain.setValueAtTime(0.001, now);
-      gain1.gain.linearRampToValueAtTime(0.08, now + 0.02);
-      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
-
+      gain1.gain.linearRampToValueAtTime(0.04, now + 0.01);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
       osc1.connect(gain1);
       gain1.connect(ctx.destination);
       osc1.start(now);
-      osc1.stop(now + 0.16);
+      osc1.stop(now + 0.09);
 
-      // Burst 2: Pitch Sweep Siren (480Hz -> 1050Hz) after 180ms
+      // Pulse 2: Solid 880 Hz High-Priority Industrial Tone (0.09s) after 110ms gap
       const osc2 = ctx.createOscillator();
       const gain2 = ctx.createGain();
-      osc2.type = 'sawtooth';
-      osc2.frequency.setValueAtTime(480, now + 0.18);
-      osc2.frequency.exponentialRampToValueAtTime(1050, now + 0.33);
-
-      gain2.gain.setValueAtTime(0.001, now + 0.18);
-      gain2.gain.linearRampToValueAtTime(0.08, now + 0.20);
-      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.34);
-
+      osc2.type = 'square';
+      osc2.frequency.setValueAtTime(880, now + 0.11);
+      gain2.gain.setValueAtTime(0.001, now + 0.11);
+      gain2.gain.linearRampToValueAtTime(0.04, now + 0.12);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.20);
       osc2.connect(gain2);
       gain2.connect(ctx.destination);
-      osc2.start(now + 0.18);
-      osc2.stop(now + 0.34);
+      osc2.start(now + 0.11);
+      osc2.stop(now + 0.20);
     } catch (e) {
       // Audio context blocked
     }
   };
 
-  // High-Intensity Emergency Mode Red Alert Loop (pulses double siren burst every 1.5 seconds)
+  // Industrial SCADA Emergency Alarm Loop (pulses sharp dual staccato alert every 1.8 seconds)
   useEffect(() => {
     if (!soundEnabled || !emergencyMode) return;
 
-    playIntenseRedAlertSiren();
+    playIndustrialEmergencyAlarm();
 
     const alarmInterval = setInterval(() => {
-      playIntenseRedAlertSiren();
-    }, 1500);
+      playIndustrialEmergencyAlarm();
+    }, 1800);
 
     return () => clearInterval(alarmInterval);
   }, [emergencyMode, soundEnabled]);
