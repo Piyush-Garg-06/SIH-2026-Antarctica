@@ -189,6 +189,34 @@ const EnergyFlowSchematic: React.FC<{ telemetry: any; activeStation: string }> =
 };
 
 
+const generate30DayLogisticsHistory = () => {
+  const data = [];
+  let fuel = 96;
+  let water = 92;
+  let food = 90;
+  let medical = 95;
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  for (let i = 30; i >= 0; i--) {
+    const time = new Date(now - i * dayMs);
+    const dateLabel = `${time.getMonth() + 1}/${time.getDate()}`;
+    fuel = Math.max(40, fuel - (0.6 + Math.random() * 0.4));
+    water = Math.max(45, water - (0.5 + Math.random() * 0.5));
+    food = Math.max(35, food - (0.7 + Math.random() * 0.3));
+    medical = Math.max(50, medical - (0.4 + Math.random() * 0.3));
+
+    data.push({
+      date: dateLabel,
+      fuel: Math.round(fuel * 10) / 10,
+      water: Math.round(water * 10) / 10,
+      food: Math.round(food * 10) / 10,
+      medical: Math.round(medical * 10) / 10
+    });
+  }
+  return data;
+};
+
 export default function App() {
   // Navigation & Role states
   const [activeStation, setActiveStation] = useState<'maitri' | 'bharati'>('maitri');
@@ -268,7 +296,7 @@ export default function App() {
   const [emergencyRouteActive, setEmergencyRouteActive] = useState<boolean>(false);
 
   // Historical & Forecast states
-  const [historyData, setHistoryData] = useState<any[]>([]);
+  const [historyData, setHistoryData] = useState<any[]>(generate30DayLogisticsHistory());
   const [forecastTimeline, setForecastTimeline] = useState<any[]>([]);
 
   // Selected Asset details (from 3D twin or lists)
@@ -294,8 +322,18 @@ export default function App() {
   const [reportLoading, setReportLoading] = useState<boolean>(false);
 
   // Demo Wizard state
-  const [demoStep, setDemoStep] = useState<number>(0);
   const [showDemoWizard, setShowDemoWizard] = useState<boolean>(true);
+  const [demoStep, setDemoStep] = useState<number>(0);
+  // Subsystems Diagnostic Health & Self-Test State
+  const [activeSelfTestId, setActiveSelfTestId] = useState<string | null>(null);
+  const [selfTestProgress, setSelfTestProgress] = useState<number>(0);
+  const [lastCompletedTest, setLastCompletedTest] = useState<{ id: string; name: string; health: number; timestamp: string } | null>(null);
+  const [subsystemStates, setSubsystemStates] = useState<Record<string, { id: string; name: string; location: string; temp: number; health: number; status: string; vibration: string; calibration: string }>>({
+    'hvac_1': { id: 'hvac_1', name: 'Main Quarters HVAC Air Handler', location: 'Living Quarters', temp: 22, health: 89, status: 'operational', vibration: '0.014g', calibration: '99%' },
+    'water_pump_1': { id: 'water_pump_1', name: 'Lake Priyadarshini Intake Heater & Pump', location: 'Utility Annex', temp: 4, health: 94, status: 'operational', vibration: '0.008g', calibration: '100%' },
+    'sat_dish_1': { id: 'sat_dish_1', name: 'High-Gain Satcom Actuator Mount', location: 'Comms Platform', temp: -12, health: 76, status: 'nominal_degradation', vibration: '0.042g', calibration: '84%' },
+    'fire_cylinder_1': { id: 'fire_cylinder_1', name: 'Halon Suppression Pressure Matrix', location: 'Power House', temp: 15, health: 99, status: 'operational', vibration: '0.002g', calibration: '100%' }
+  });
 
   // Reference for socket connection
   const socketRef = useRef<Socket | null>(null);
@@ -386,8 +424,24 @@ export default function App() {
     // Fetch 30-day historical chart data
     fetch(`${BACKEND_URL}/api/stations/${activeStation}/history`)
       .then(res => res.json())
-      .then(data => setHistoryData(data))
-      .catch(err => console.error("Error fetching station history:", err));
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          const formatted = data.map((item: any, idx: number) => ({
+            date: item.date || (item.timestamp ? `${new Date(item.timestamp).getMonth() + 1}/${new Date(item.timestamp).getDate()}` : `Day ${idx + 1}`),
+            fuel: item.fuel ?? item.fuelLevel ?? item.fuel_level ?? 80,
+            water: item.water ?? item.waterLevel ?? item.water_level ?? 85,
+            food: item.food ?? item.foodRations ?? item.foodDays ?? 75,
+            medical: item.medical ?? item.medicalSupplies ?? 88
+          }));
+          setHistoryData(formatted);
+        } else {
+          setHistoryData(generate30DayLogisticsHistory());
+        }
+      })
+      .catch(err => {
+        console.error("Error fetching station history:", err);
+        setHistoryData(generate30DayLogisticsHistory());
+      });
 
     // Fetch link status
     fetch(`${BACKEND_URL}/api/link/status`)
@@ -431,6 +485,49 @@ export default function App() {
   const addSystemLog = (message: string) => {
     const time = new Date().toLocaleTimeString();
     setSystemEvents(prev => [`[${time}] ${message}`, ...prev.slice(0, 19)]);
+  };
+
+  const runSubsystemSelfTest = (eqId: string, eqName: string) => {
+    if (activeSelfTestId) return;
+
+    setActiveSelfTestId(eqId);
+    setSelfTestProgress(10);
+    addSystemLog(`Initiated 12-point hardware self-test diagnostic sequence on: ${eqName}`);
+    if (soundEnabled) playBeepSound();
+
+    let step = 10;
+    const interval = setInterval(() => {
+      step += 18;
+      if (step >= 100) {
+        step = 100;
+        setSelfTestProgress(100);
+        clearInterval(interval);
+
+        setTimeout(() => {
+          setSubsystemStates(prev => ({
+            ...prev,
+            [eqId]: {
+              ...prev[eqId],
+              health: Math.min(100, (prev[eqId]?.health || 80) + 18),
+              status: 'operational',
+              vibration: '0.004g (Optimal)',
+              calibration: '100% (Calibrated)'
+            }
+          }));
+
+          const time = new Date().toLocaleTimeString();
+          setLastCompletedTest({ id: eqId, name: eqName, health: 98, timestamp: time });
+          setActiveSelfTestId(null);
+          setSelfTestProgress(0);
+
+          addSystemLog(`[DIAGNOSTIC PASSED] ${eqName} completed 12-point self-test. Actuators re-calibrated. Status: 100% OPERATIONAL.`);
+          if (soundEnabled) playBeepSound();
+        }, 400);
+      } else {
+        setSelfTestProgress(step);
+        if (soundEnabled) playBeepSound();
+      }
+    }, 300);
   };
 
   const handleMutualAidRequest = () => {
@@ -1487,21 +1584,31 @@ export default function App() {
                     <AreaChart data={historyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                       <defs>
                         <linearGradient id="colorFuel" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
+                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
                           <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                         </linearGradient>
                         <linearGradient id="colorWater" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.25} />
                           <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="colorFood" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.25} />
+                          <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="colorMedical" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#a855f7" stopOpacity={0.25} />
+                          <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
                       <XAxis dataKey="date" stroke="#64748b" style={{ fontSize: 10, fontFamily: 'Outfit' }} />
-                      <YAxis stroke="#64748b" style={{ fontSize: 10, fontFamily: 'Outfit' }} />
+                      <YAxis stroke="#64748b" style={{ fontSize: 10, fontFamily: 'Outfit' }} domain={[0, 100]} />
                       <Tooltip contentStyle={{ backgroundColor: '#090d16', borderColor: 'rgba(255,255,255,0.08)' }} labelStyle={{ color: '#cbd5e1' }} />
                       <Legend wrapperStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans' }} />
-                      <Area type="monotone" dataKey="fuel" name="Fuel Reserves (L)" stroke="#6366f1" fillOpacity={1} fill="url(#colorFuel)" strokeWidth={2} />
-                      <Area type="monotone" dataKey="water" name="Water Reserves (L)" stroke="#10b981" fillOpacity={1} fill="url(#colorWater)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="fuel" name="Fuel Reserves (%)" stroke="#6366f1" fillOpacity={1} fill="url(#colorFuel)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="water" name="Water Reserves (%)" stroke="#10b981" fillOpacity={1} fill="url(#colorWater)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="food" name="Food Rations Buffer (%)" stroke="#f59e0b" fillOpacity={1} fill="url(#colorFood)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="medical" name="Medical Stocks Integrity (%)" stroke="#a855f7" fillOpacity={1} fill="url(#colorMedical)" strokeWidth={2} />
                     </AreaChart>
                   </ResponsiveContainer>
                 ) : (
@@ -1558,38 +1665,87 @@ export default function App() {
               </h3>
 
               <div className="flex flex-col gap-3 mt-2">
-                {[
-                  { id: 'hvac_1', name: 'Main Quarters HVAC Air Handler', location: 'Living Quarters', health: 89, temp: 22, status: 'operational' },
-                  { id: 'water_pump_1', name: 'Lake Priyadarshini Intake Heater & Pump', location: 'Utility Annex', health: 94, temp: 4, status: 'operational' },
-                  { id: 'sat_dish_1', name: 'High-Gain Satcom Actuator Mount', location: 'Comms Platform', health: 76, temp: -12, status: 'nominal_degradation' },
-                  { id: 'fire_cylinder_1', name: 'Halon Suppression Pressure Matrix', location: 'Power House', health: 99, temp: 15, status: 'operational' }
-                ].map(eq => (
-                  <div key={eq.id} className="p-4 border border-white/5 rounded-xl bg-slate-900/10 flex items-center justify-between hover:border-indigo-500/20 transition-all">
-                    <div className="flex flex-col gap-1 text-xs">
-                      <span className="font-semibold text-slate-100">{eq.name}</span>
-                      <div className="flex gap-4 text-[11px] text-slate-450 mt-0.5">
-                        <span>Location: {eq.location}</span>
-                        <span>Temp: {eq.temp}°C</span>
+
+                {Object.values(subsystemStates).map(eq => {
+                  const isTesting = activeSelfTestId === eq.id;
+                  const isJustCompleted = lastCompletedTest?.id === eq.id;
+
+                  return (
+                    <div key={eq.id} className={`p-4 border rounded-xl flex flex-col gap-3 transition-all ${isTesting ? 'border-indigo-500/80 bg-indigo-950/20 shadow-lg shadow-indigo-950/40 glow-blue-premium' : 'border-white/5 bg-slate-900/10 hover:border-indigo-500/20'}`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex flex-col gap-1 text-xs">
+                          <div className="flex items-center gap-2">
+                            <Wrench className="h-3.5 w-3.5 text-indigo-400" />
+                            <span className="font-semibold text-slate-100">{eq.name}</span>
+                          </div>
+                          <div className="flex gap-4 text-[11px] text-slate-450 mt-0.5">
+                            <span>Location: <strong className="text-slate-300">{eq.location}</strong></span>
+                            <span>Temp: <strong className="text-slate-300">{eq.temp}°C</strong></span>
+                            <span>Vibration: <strong className="text-slate-300">{eq.vibration}</strong></span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs">
+                          <div className="flex flex-col items-end">
+                            <span className="font-bold text-slate-200">{eq.health}% Health</span>
+                            <span className={`text-[10px] uppercase font-bold tracking-wider mt-0.5 ${eq.status === 'operational' ? 'text-emerald-400' : 'text-amber-500 animate-pulse'}`}>
+                              {eq.status.replace('_', ' ')}
+                            </span>
+                          </div>
+                          <button
+                            disabled={!!activeSelfTestId}
+                            onClick={() => runSubsystemSelfTest(eq.id, eq.name)}
+                            className={`p-2 px-4 border rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${isTesting
+                              ? 'bg-indigo-950/80 border-indigo-500 text-indigo-300 animate-pulse cursor-not-allowed shadow-md shadow-indigo-900/40'
+                              : 'border-indigo-500/30 hover:border-indigo-400 hover:bg-indigo-600/20 text-indigo-300 bg-slate-950/80 hover:shadow-md hover:shadow-indigo-500/20'
+                              }`}
+                          >
+                            {isTesting ? (
+                              <>
+                                <RefreshCw className="h-3.5 w-3.5 animate-spin text-indigo-400" />
+                                <span>TESTING {selfTestProgress}%</span>
+                              </>
+                            ) : (
+                              <>
+                                <Activity className="h-3.5 w-3.5 text-indigo-400" />
+                                <span>Self-Test</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
+
+                      {/* Active Self-Test Real-Time Diagnostic Bar */}
+                      {isTesting && (
+                        <div className="pt-2 border-t border-indigo-500/20 flex flex-col gap-2">
+                          <div className="flex justify-between items-center text-[10px] uppercase font-bold tracking-wider text-indigo-300">
+                            <span className="flex items-center gap-1.5">
+                              <Cpu className="h-3 w-3 animate-spin text-indigo-400" />
+                              Running 12-Point Hardware & Sensor Sweep...
+                            </span>
+                            <span>{selfTestProgress}% COMPLETE</span>
+                          </div>
+                          <div className="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-indigo-500/30 p-0.5">
+                            <div
+                              className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-400 rounded-full transition-all duration-300 shadow-md shadow-indigo-500/50"
+                              style={{ width: `${selfTestProgress}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Completed Diagnostic Badge */}
+                      {isJustCompleted && !isTesting && (
+                        <div className="p-2 px-3 bg-emerald-950/30 border border-emerald-500/30 rounded-lg text-[10px] text-emerald-300 flex items-center justify-between font-bold animate-fadeIn">
+                          <span className="flex items-center gap-1.5">
+                            <CheckCircle className="h-3.5 w-3.5 text-emerald-400" />
+                            DIAGNOSTIC PASSED ({lastCompletedTest.timestamp}): ACTUATORS RE-CALIBRATED TO {lastCompletedTest.health}% HEALTH
+                          </span>
+                          <span className="uppercase text-[9px] bg-emerald-900/60 px-2 py-0.5 rounded text-emerald-200 border border-emerald-700/50">OPERATIONAL</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="flex items-center gap-4 text-xs">
-                      <div className="flex flex-col items-end">
-                        <span className="font-bold text-slate-200">{eq.health}% Health</span>
-                        <span className={`text-[10px] uppercase font-bold tracking-wider mt-0.5 ${eq.status === 'operational' ? 'text-emerald-400' : 'text-amber-500 animate-pulse'
-                          }`}>{eq.status.replace('_', ' ')}</span>
-                      </div>
-                      <button
-                        onClick={() => {
-                          addSystemLog(`Initiated remote diagnostic self-test sequence on: ${eq.id}`);
-                          playBeepSound();
-                        }}
-                        className="p-1 px-3 border border-white/10 hover:border-indigo-500 hover:text-indigo-400 rounded-lg bg-slate-950 text-xs transition-colors font-bold"
-                      >
-                        Self-Test
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
