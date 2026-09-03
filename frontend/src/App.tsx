@@ -335,8 +335,12 @@ export default function App() {
     'fire_cylinder_1': { id: 'fire_cylinder_1', name: 'Halon Suppression Pressure Matrix', location: 'Power House', temp: 15, health: 99, status: 'operational', vibration: '0.002g', calibration: '100%' }
   });
 
-  // Reference for socket connection
+  // Reference for socket connection and active scenario
   const socketRef = useRef<Socket | null>(null);
+  const activeScenarioRef = useRef(activeScenario);
+  useEffect(() => {
+    activeScenarioRef.current = activeScenario;
+  }, [activeScenario]);
 
   // 1. WebSocket connection and message routing
   useEffect(() => {
@@ -351,7 +355,9 @@ export default function App() {
       if (data.stationId === activeStation) {
         setTelemetry(data.telemetry);
         setAlerts(data.alerts);
-        setActiveScenario(data.activeScenario);
+        if (data.activeScenario) {
+          setActiveScenario(data.activeScenario);
+        }
         setLastSyncedTime(Date.now());
       }
     });
@@ -370,7 +376,7 @@ export default function App() {
         setRtt(data.lastRtt);
         setQueuedLogs(new Array(data.queuedCount || 0).fill({}));
 
-        const nextStatus = data.tier === 'offline' ? 'offline' : 'online';
+        const nextStatus = (data.tier === 'offline' || activeScenarioRef.current === 'comms_outage') ? 'offline' : 'online';
         setLinkStatus(nextStatus);
       }
     });
@@ -592,68 +598,54 @@ export default function App() {
   // Execute What-if Scenario
   const runScenario = (scenarioName: string) => {
     addSystemLog(`Activating Simulation: ${scenarioName.toUpperCase()}`);
-    
-    // Auto disconnect uplink if SATCOM Blackout scenario is triggered
+    setActiveScenario(scenarioName);
+
     if (scenarioName === 'comms_outage') {
       setLinkStatus('offline');
       addSystemLog("📡 [SATCOM BLACKOUT] Ku-Band Transceiver Disconnected. Link Forced OFFLINE. Local Store & Forward Queue active.");
     }
 
-    if (linkStatus === 'online' && scenarioName !== 'comms_outage') {
-      fetch(`${BACKEND_URL}/api/simulations/run`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stationId: activeStation, scenario: scenarioName })
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (!data.success) {
-            throw new Error(data.error || 'Simulation request failed');
-          }
+    fetch(`${BACKEND_URL}/api/simulations/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stationId: activeStation, scenario: scenarioName })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
           setActiveScenario(data.scenario || scenarioName);
-          setForecastTimeline(data.timeline || []);
-        })
-        .catch(err => console.error(err));
-    } else {
-      // Local client simulation trigger
-      setActiveScenario(scenarioName);
-      // Generate mock 7 day forecast data
-      const mockTimeline = Array.from({ length: 7 }, (_, i) => ({
-        day: i,
-        fuel: Math.round((telemetry?.resources?.fuel || 40000) - i * 1500 * (scenarioName === 'fuel_shortage' ? 3 : 1)),
-        water: Math.round((telemetry?.resources?.water || 12000) - i * 400 * (scenarioName === 'water_shortage' ? 4 : 1)),
-        battery: scenarioName === 'battery_failure' ? (i === 0 ? 0 : Math.max(0, 10 - i * 2)) : Math.max(0, 90 - i * (scenarioName === 'generator_failure' ? 15 : 2)),
-        power: scenarioName === 'equipment_overload' ? 148 + i * 2 : (telemetry?.powerGrid?.load || 120) + (scenarioName === 'snowstorm' ? i * 12 : 0),
-        healthScore: Math.max(10, 95 - i * (scenarioName === 'battery_failure' ? 12 : scenarioName === 'equipment_overload' ? 10 : scenarioName === 'generator_failure' ? 8 : 2)),
-        risk: (scenarioName === 'snowstorm' || scenarioName === 'battery_failure' || scenarioName === 'equipment_overload' || scenarioName === 'comms_outage' || scenarioName === 'supply_delay') ? 'Critical' : 'Medium'
-      }));
-      setForecastTimeline(mockTimeline);
-    }
+          if (data.timeline) {
+            setForecastTimeline(data.timeline);
+          }
+        }
+      })
+      .catch(() => {
+        // Generate mock 7 day forecast data
+        const mockTimeline = Array.from({ length: 7 }, (_, i) => ({
+          day: i,
+          fuel: Math.round((telemetry?.resources?.fuel || 40000) - i * 1500 * (scenarioName === 'fuel_shortage' ? 3 : 1)),
+          water: Math.round((telemetry?.resources?.water || 12000) - i * 400 * (scenarioName === 'water_shortage' ? 4 : 1)),
+          battery: scenarioName === 'battery_failure' ? (i === 0 ? 0 : Math.max(0, 10 - i * 2)) : Math.max(0, 90 - i * (scenarioName === 'generator_failure' ? 15 : 2)),
+          power: scenarioName === 'equipment_overload' ? 148 + i * 2 : (telemetry?.powerGrid?.load || 120) + (scenarioName === 'snowstorm' ? i * 12 : 0),
+          healthScore: Math.max(10, 95 - i * (scenarioName === 'battery_failure' ? 12 : scenarioName === 'equipment_overload' ? 10 : scenarioName === 'generator_failure' ? 8 : 2)),
+          risk: (scenarioName === 'snowstorm' || scenarioName === 'battery_failure' || scenarioName === 'equipment_overload' || scenarioName === 'comms_outage' || scenarioName === 'supply_delay') ? 'Critical' : 'Medium'
+        }));
+        setForecastTimeline(mockTimeline);
+      });
   };
 
   // Reset scenario back to baseline
   const resetScenario = () => {
-    const wasCommsOutage = activeScenario === 'comms_outage';
-    if (wasCommsOutage) {
-      setLinkStatus('online');
-      addSystemLog("⚡ [SATCOM RECONNECTED] Satellite Transceiver Link Restored ONLINE. Auto-synced queued telemetry packets to Mainland Gateway.");
-    }
+    setActiveScenario('none');
+    setForecastTimeline([]);
+    setLinkStatus('online');
+    addSystemLog("⚡ [SATCOM RECONNECTED] Satellite Transceiver Link Restored ONLINE. Auto-synced queued telemetry packets to Mainland Gateway.");
 
     fetch(`${BACKEND_URL}/api/simulations/stop`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ stationId: activeStation })
-    })
-      .then(res => res.json())
-      .then(data => {
-        setActiveScenario('none');
-        setForecastTimeline([]);
-      })
-      .catch(() => {
-        setActiveScenario('none');
-        setForecastTimeline([]);
-        addSystemLog("Cleared simulation. Telemetry returned to baseline.");
-      });
+    }).catch(err => console.error("Reset backend error:", err));
   };
 
   // 4. AI Copilot chat submissions

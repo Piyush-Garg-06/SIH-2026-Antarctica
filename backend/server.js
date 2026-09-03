@@ -229,7 +229,9 @@ mqttClient.on('message', async (topic, message) => {
         !dismissedAlertIds[stationId]?.has(alert.id) &&
         !dismissedAlertTypes[stationId]?.has(alert.type)
       );
-      activeScenarios[stationId] = activeScenario || 'none';
+      if (activeScenario && activeScenario !== 'none') {
+        activeScenarios[stationId] = activeScenario;
+      }
 
       // BUGFIX: station-agent computes healthScore from its OWN unfiltered
       // alert list — it has no concept of mainland-side dismissals. Without
