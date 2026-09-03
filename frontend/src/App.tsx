@@ -1617,10 +1617,9 @@ export default function App() {
                           </span>
                           <span className="uppercase text-[9px] bg-emerald-900/60 px-2 py-0.5 rounded text-emerald-200 border border-emerald-700/50">OPERATIONAL</span>
                         </div>
-                      )}
                     </div>
                   );
-                ))}
+                })}
               </div>
             </div>
           </div>
