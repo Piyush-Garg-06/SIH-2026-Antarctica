@@ -174,6 +174,28 @@ const EnergyFlowSchematic: React.FC<{ telemetry: any; activeStation: string }> =
 };
 
 
+const generate30DayLogisticsHistory = () => {
+  const data = [];
+  let fuel = 96;
+  let water = 92;
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  for (let i = 30; i >= 0; i--) {
+    const time = new Date(now - i * dayMs);
+    const dateLabel = `${time.getMonth() + 1}/${time.getDate()}`;
+    fuel = Math.max(40, fuel - (0.7 + Math.random() * 0.4));
+    water = Math.max(45, water - (0.6 + Math.random() * 0.5));
+
+    data.push({
+      date: dateLabel,
+      fuel: Math.round(fuel * 10) / 10,
+      water: Math.round(water * 10) / 10
+    });
+  }
+  return data;
+};
+
 export default function App() {
   // Navigation & Role states
   const [activeStation, setActiveStation] = useState<'maitri' | 'bharati'>('maitri');
@@ -200,7 +222,7 @@ export default function App() {
   const [emergencyRouteActive, setEmergencyRouteActive] = useState<boolean>(false);
 
   // Historical & Forecast states
-  const [historyData, setHistoryData] = useState<any[]>([]);
+  const [historyData, setHistoryData] = useState<any[]>(generate30DayLogisticsHistory());
   const [forecastTimeline, setForecastTimeline] = useState<any[]>([]);
 
   // Selected Asset details (from 3D twin or lists)
@@ -328,8 +350,22 @@ export default function App() {
     // Fetch 30-day historical chart data
     fetch(`${BACKEND_URL}/api/stations/${activeStation}/history`)
       .then(res => res.json())
-      .then(data => setHistoryData(data))
-      .catch(err => console.error("Error fetching station history:", err));
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          const formatted = data.map((item: any, idx: number) => ({
+            date: item.date || (item.timestamp ? `${new Date(item.timestamp).getMonth() + 1}/${new Date(item.timestamp).getDate()}` : `Day ${idx + 1}`),
+            fuel: item.fuel ?? item.fuelLevel ?? item.fuel_level ?? 80,
+            water: item.water ?? item.waterLevel ?? item.water_level ?? 85
+          }));
+          setHistoryData(formatted);
+        } else {
+          setHistoryData(generate30DayLogisticsHistory());
+        }
+      })
+      .catch(err => {
+        console.error("Error fetching station history:", err);
+        setHistoryData(generate30DayLogisticsHistory());
+      });
 
     // Fetch link status
     fetch(`${BACKEND_URL}/api/link/status`)
