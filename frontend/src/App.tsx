@@ -561,92 +561,34 @@ export default function App() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const lastBeepTimeRef = useRef<number>(0);
 
-  // Original station alert synthesizer (350Hz Sawtooth Wave)
-  const playBeepSound = (freq = 350, duration = 0.15, type: OscillatorType = 'sawtooth') => {
+  // Original Project Audio Synthesizer (Exact implementation from initial commit)
+  const playBeepSound = () => {
     if (!soundEnabled) return;
-    const now = Date.now();
-    // 300ms debounce guard to prevent overlapping audio glitches
-    if (now - lastBeepTimeRef.current < 300) return;
-    lastBeepTimeRef.current = now;
-
     try {
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-      }
-      const ctx = audioCtxRef.current;
-      if (ctx.state === 'suspended') {
-        ctx.resume();
-      }
-
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc.type = type;
-      osc.frequency.setValueAtTime(freq, ctx.currentTime);
-
-      // Smooth attack & decay envelope for the 350Hz sawtooth wave
-      gain.gain.setValueAtTime(0.001, ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.06, ctx.currentTime + 0.015);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + duration);
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      oscillator.type = 'sawtooth';
+      oscillator.frequency.setValueAtTime(350, audioContext.currentTime);
+      gainNode.gain.setValueAtTime(0.08, audioContext.currentTime);
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.15);
     } catch (e) {
-      // Audio context blocked or unsupported
+      // Audio context might be blocked by browser
     }
   };
 
-  // Tactical Critical Risk & Hazard Warning Siren (High-Risk Dissonant Tritone Pulse: 880Hz <-> 622Hz)
-  const playRiskHazardSiren = () => {
-    if (!soundEnabled) return;
-    try {
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-      }
-      const ctx = audioCtxRef.current;
-      if (ctx.state === 'suspended') {
-        ctx.resume();
-      }
-
-      const now = ctx.currentTime;
-      // Dissonant Risk Warning Frequencies (880Hz & 622Hz Tritone Hazard Pattern)
-      const freqs = [880, 622, 880, 622];
-
-      freqs.forEach((freq, idx) => {
-        const startTime = now + idx * 0.08;
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(freq, startTime);
-
-        gain.gain.setValueAtTime(0.001, startTime);
-        gain.gain.linearRampToValueAtTime(0.05, startTime + 0.01);
-        gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.07);
-
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-
-        osc.start(startTime);
-        osc.stop(startTime + 0.07);
-      });
-    } catch (e) {
-      // Audio context blocked
-    }
-  };
-
-  // Critical Risk Hazard Emergency Alarm Loop (pulses 4-tone hazard alert every 1.6 seconds)
+  // Original Emergency Mode Alert loop (pulses original 350Hz sound every 2.5 seconds)
   useEffect(() => {
     if (!soundEnabled || !emergencyMode) return;
 
-    playRiskHazardSiren();
+    playBeepSound();
 
     const alarmInterval = setInterval(() => {
-      playRiskHazardSiren();
-    }, 1600);
+      playBeepSound();
+    }, 2500);
 
     return () => clearInterval(alarmInterval);
   }, [emergencyMode, soundEnabled]);
