@@ -178,19 +178,25 @@ const generate30DayLogisticsHistory = () => {
   const data = [];
   let fuel = 96;
   let water = 92;
+  let food = 90;
+  let medical = 95;
   const now = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
 
   for (let i = 30; i >= 0; i--) {
     const time = new Date(now - i * dayMs);
     const dateLabel = `${time.getMonth() + 1}/${time.getDate()}`;
-    fuel = Math.max(40, fuel - (0.7 + Math.random() * 0.4));
-    water = Math.max(45, water - (0.6 + Math.random() * 0.5));
+    fuel = Math.max(40, fuel - (0.6 + Math.random() * 0.4));
+    water = Math.max(45, water - (0.5 + Math.random() * 0.5));
+    food = Math.max(35, food - (0.7 + Math.random() * 0.3));
+    medical = Math.max(50, medical - (0.4 + Math.random() * 0.3));
 
     data.push({
       date: dateLabel,
       fuel: Math.round(fuel * 10) / 10,
-      water: Math.round(water * 10) / 10
+      water: Math.round(water * 10) / 10,
+      food: Math.round(food * 10) / 10,
+      medical: Math.round(medical * 10) / 10
     });
   }
   return data;
@@ -355,7 +361,9 @@ export default function App() {
           const formatted = data.map((item: any, idx: number) => ({
             date: item.date || (item.timestamp ? `${new Date(item.timestamp).getMonth() + 1}/${new Date(item.timestamp).getDate()}` : `Day ${idx + 1}`),
             fuel: item.fuel ?? item.fuelLevel ?? item.fuel_level ?? 80,
-            water: item.water ?? item.waterLevel ?? item.water_level ?? 85
+            water: item.water ?? item.waterLevel ?? item.water_level ?? 85,
+            food: item.food ?? item.foodRations ?? item.foodDays ?? 75,
+            medical: item.medical ?? item.medicalSupplies ?? 88
           }));
           setHistoryData(formatted);
         } else {
@@ -1506,21 +1514,31 @@ export default function App() {
                     <AreaChart data={historyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                       <defs>
                         <linearGradient id="colorFuel" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
+                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
                           <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                         </linearGradient>
                         <linearGradient id="colorWater" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.25} />
                           <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="colorFood" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.25} />
+                          <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="colorMedical" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#a855f7" stopOpacity={0.25} />
+                          <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
                       <XAxis dataKey="date" stroke="#64748b" style={{ fontSize: 10, fontFamily: 'Outfit' }} />
-                      <YAxis stroke="#64748b" style={{ fontSize: 10, fontFamily: 'Outfit' }} />
+                      <YAxis stroke="#64748b" style={{ fontSize: 10, fontFamily: 'Outfit' }} domain={[0, 100]} />
                       <Tooltip contentStyle={{ backgroundColor: '#090d16', borderColor: 'rgba(255,255,255,0.08)' }} labelStyle={{ color: '#cbd5e1' }} />
                       <Legend wrapperStyle={{ fontSize: 11, fontFamily: 'Plus Jakarta Sans' }} />
-                      <Area type="monotone" dataKey="fuel" name="Fuel Reserves (L)" stroke="#6366f1" fillOpacity={1} fill="url(#colorFuel)" strokeWidth={2} />
-                      <Area type="monotone" dataKey="water" name="Water Reserves (L)" stroke="#10b981" fillOpacity={1} fill="url(#colorWater)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="fuel" name="Fuel Reserves (%)" stroke="#6366f1" fillOpacity={1} fill="url(#colorFuel)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="water" name="Water Reserves (%)" stroke="#10b981" fillOpacity={1} fill="url(#colorWater)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="food" name="Food Rations Buffer (%)" stroke="#f59e0b" fillOpacity={1} fill="url(#colorFood)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="medical" name="Medical Stocks Integrity (%)" stroke="#a855f7" fillOpacity={1} fill="url(#colorMedical)" strokeWidth={2} />
                     </AreaChart>
                   </ResponsiveContainer>
                 ) : (

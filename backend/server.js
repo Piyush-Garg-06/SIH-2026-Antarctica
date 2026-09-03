@@ -102,19 +102,25 @@ function generateInitialHistoricalData(stationId) {
   const data = [];
   let fuel = stationId === 'maitri' ? 96 : 92;
   let water = stationId === 'maitri' ? 94 : 88;
+  let food = stationId === 'maitri' ? 90 : 85;
+  let medical = stationId === 'maitri' ? 98 : 94;
   const now = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
 
   for (let i = 30; i >= 0; i--) {
     const time = new Date(now - i * dayMs);
     const dateLabel = `${time.getMonth() + 1}/${time.getDate()}`;
-    fuel = Math.max(40, fuel - (0.7 + Math.random() * 0.4));
-    water = Math.max(45, water - (0.6 + Math.random() * 0.5));
+    fuel = Math.max(40, fuel - (0.6 + Math.random() * 0.4));
+    water = Math.max(45, water - (0.5 + Math.random() * 0.5));
+    food = Math.max(35, food - (0.7 + Math.random() * 0.3));
+    medical = Math.max(50, medical - (0.4 + Math.random() * 0.3));
 
     data.push({
       date: dateLabel,
       fuel: Math.round(fuel * 10) / 10,
       water: Math.round(water * 10) / 10,
+      food: Math.round(food * 10) / 10,
+      medical: Math.round(medical * 10) / 10,
       fuelLevel: Math.round(fuel * 10) / 10,
       waterLevel: Math.round(water * 10) / 10,
       timestamp: time.toISOString()
