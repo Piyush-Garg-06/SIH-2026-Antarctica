@@ -2606,22 +2606,6 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4">
-            {/* User Role */}
-            <div className="flex items-center gap-2.5 text-slate-400">
-              <User className="h-4.5 w-4.5 text-slate-500" />
-              <select
-                value={role}
-                onChange={(e) => { setRole(e.target.value); addSystemLog(`Role set to ${e.target.value}`); }}
-                className="bg-slate-900/60 border border-white/5 rounded-xl p-1 px-3 text-slate-200 focus:outline-none focus:border-indigo-500 text-xs font-semibold"
-              >
-                <option>Operations Manager</option>
-                <option>Maintenance Engineer</option>
-                <option>Scientist</option>
-                <option>Administrator</option>
-              </select>
-            </div>
-
-            {/* Automated Emergency Mode Status Banner */}
             <div
               className={`p-2 px-4 border rounded-xl font-bold transition-all uppercase tracking-wider text-[10px] flex items-center gap-2 ${emergencyMode
                 ? 'bg-red-950/80 text-red-300 border-red-500/80 glow-red-premium animate-pulse shadow-lg shadow-red-900/40'
