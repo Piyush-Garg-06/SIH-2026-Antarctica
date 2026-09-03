@@ -561,11 +561,12 @@ export default function App() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const lastBeepTimeRef = useRef<number>(0);
 
-  // Standard UI Interaction Beep (clicks / diagnostic self-tests)
-  const playBeepSound = (freq = 880, duration = 0.08, type: OscillatorType = 'triangle') => {
+  // Original station alert synthesizer (350Hz Sawtooth Wave)
+  const playBeepSound = (freq = 350, duration = 0.15, type: OscillatorType = 'sawtooth') => {
     if (!soundEnabled) return;
     const now = Date.now();
-    if (now - lastBeepTimeRef.current < 150) return;
+    // 300ms debounce guard to prevent overlapping audio glitches
+    if (now - lastBeepTimeRef.current < 300) return;
     lastBeepTimeRef.current = now;
 
     try {
@@ -583,8 +584,9 @@ export default function App() {
       osc.type = type;
       osc.frequency.setValueAtTime(freq, ctx.currentTime);
 
+      // Smooth attack & decay envelope for the 350Hz sawtooth wave
       gain.gain.setValueAtTime(0.001, ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.05, ctx.currentTime + 0.01);
+      gain.gain.linearRampToValueAtTime(0.06, ctx.currentTime + 0.015);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
 
       osc.connect(gain);
@@ -597,59 +599,15 @@ export default function App() {
     }
   };
 
-  // Tactical Base Emergency Siren (Dual-Tone Tactical Warning Pulse: 960Hz -> 760Hz)
-  const playEmergencySiren = () => {
-    if (!soundEnabled) return;
-    try {
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-      }
-      const ctx = audioCtxRef.current;
-      if (ctx.state === 'suspended') {
-        ctx.resume();
-      }
-
-      const now = ctx.currentTime;
-
-      // Tone 1: High alert pitch (960 Hz)
-      const osc1 = ctx.createOscillator();
-      const gain1 = ctx.createGain();
-      osc1.type = 'sawtooth';
-      osc1.frequency.setValueAtTime(960, now);
-      gain1.gain.setValueAtTime(0.001, now);
-      gain1.gain.linearRampToValueAtTime(0.06, now + 0.015);
-      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
-      osc1.connect(gain1);
-      gain1.connect(ctx.destination);
-      osc1.start(now);
-      osc1.stop(now + 0.14);
-
-      // Tone 2: Warning pitch (760 Hz) after 160ms delay
-      const osc2 = ctx.createOscillator();
-      const gain2 = ctx.createGain();
-      osc2.type = 'sawtooth';
-      osc2.frequency.setValueAtTime(760, now + 0.16);
-      gain2.gain.setValueAtTime(0.001, now + 0.16);
-      gain2.gain.linearRampToValueAtTime(0.06, now + 0.175);
-      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.30);
-      osc2.connect(gain2);
-      gain2.connect(ctx.destination);
-      osc2.start(now + 0.16);
-      osc2.stop(now + 0.30);
-    } catch (e) {
-      // Audio context blocked
-    }
-  };
-
-  // Dedicated Tactical Emergency Siren loop (pulses dual-tone siren every 2.2 seconds during Emergency Protocol)
+  // Original Emergency Mode Alert loop (pulses 350Hz sawtooth alert every 2.5 seconds)
   useEffect(() => {
     if (!soundEnabled || !emergencyMode) return;
 
-    playEmergencySiren();
+    playBeepSound(350, 0.15, 'sawtooth');
 
     const alarmInterval = setInterval(() => {
-      playEmergencySiren();
-    }, 2200);
+      playBeepSound(350, 0.15, 'sawtooth');
+    }, 2500);
 
     return () => clearInterval(alarmInterval);
   }, [emergencyMode, soundEnabled]);
