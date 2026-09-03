@@ -117,7 +117,7 @@ function determineRiskLevel(healthScore) {
 }
 
 // Simulate one step of telemetry (timeDelta is in hours)
-function simulateNextState(currentState, scenario = 'none', timeDeltaHours = 0.05, alertsQueue = []) {
+function simulateNextState(currentState, scenario = 'none', timeDeltaHours = 0.05, alertsQueue = [], envOverride = {}) {
   // Deep clone to prevent mutating input
   const next = JSON.parse(JSON.stringify(currentState));
   next.timestamp = new Date().toISOString();
@@ -142,6 +142,14 @@ function simulateNextState(currentState, scenario = 'none', timeDeltaHours = 0.0
     else next.weather.forecast = 'Clear, stable polar conditions';
   }
 
+  // Operator manual override (Interactive Environment Controls slider). Blended
+  // rather than snapped so the twin/telemetry don't visibly jump — converges to
+  // the requested target over a few ticks (~6-9s), same feel as real HVAC/wind
+  // system response lag.
+  if (typeof envOverride.windSpeed === 'number') {
+    next.weather.windSpeed = Math.max(0, Math.min(150, next.weather.windSpeed + (envOverride.windSpeed - next.weather.windSpeed) * 0.4));
+  }
+
   // 2. Weather Impact -> Heating & Power Load
   const baseHeatingLoad = next.stationId === 'maitri' ? 40 : 50;
   const tempFactor = Math.max(0, -15 - next.weather.temp) * 1.2; // Extra power per degree below -15C
@@ -159,6 +167,15 @@ function simulateNextState(currentState, scenario = 'none', timeDeltaHours = 0.0
 
   // Total Load
   next.powerGrid.load = Math.round(baseStaticLoad + weatherHeatingDemand + scientificLoad + freezeLoadPenalty);
+
+  // Operator manual override for generator load baseline (Interactive
+  // Environment Controls slider). Blended the same way as the wind override
+  // above, and applied before building/generator distribution below so the
+  // whole downstream chain (buildings, generator selection, fuel burn)
+  // reacts to the operator's requested baseline, not just the display value.
+  if (typeof envOverride.generatorLoadBaseline === 'number') {
+    next.powerGrid.load = Math.round(Math.max(40, Math.min(300, next.powerGrid.load + (envOverride.generatorLoadBaseline - next.powerGrid.load) * 0.4)));
+  }
 
   // Distribute Building Loads
   next.buildings.forEach(b => {

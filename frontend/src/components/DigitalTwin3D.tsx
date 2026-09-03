@@ -3,6 +3,70 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Html } from '@react-three/drei';
 import * as THREE from 'three';
 
+// ---------------------------------------------------------------------------
+// Anomaly Severity System
+// ---------------------------------------------------------------------------
+// A single, shared classifier + pulsing-glow hook used by every department
+// mesh (Admin Core, Living Module, Science Labs, Water Utility, Logistics
+// Warehouse, Generators, Fuel Tanks, and generic procedural buildings) so
+// anomalies are surfaced consistently across the whole station, not just on
+// the handful of assets that happened to have bespoke glow logic before.
+export type AnomalySeverity = 'nominal' | 'warning' | 'critical';
+
+export const ANOMALY_GLOW_COLOR: Record<AnomalySeverity, string> = {
+  nominal: '#000000',
+  warning: '#f59e0b', // amber — degraded / attention needed
+  critical: '#ef4444', // red — critical / immediate action needed
+};
+
+/**
+ * Classifies any live telemetry object (generator, equipment, or building)
+ * into a severity tier so every department can react to anomalies uniformly.
+ */
+export function getAnomalySeverity(liveStatus: any, emergencyMode: boolean = false): AnomalySeverity {
+  if (emergencyMode) return 'critical';
+  if (!liveStatus) return 'nominal';
+
+  const status = liveStatus.status;
+  if (status === 'critical' || status === 'offline' || status === 'cooling_issue') return 'critical';
+  if (status === 'degraded' || status === 'high_load') return 'warning';
+
+  if (typeof liveStatus.health === 'number') {
+    if (liveStatus.health < 40) return 'critical';
+    if (liveStatus.health < 75) return 'warning';
+  }
+
+  if (typeof liveStatus.temp === 'number') {
+    if (liveStatus.temp > 90) return 'critical';
+    if (liveStatus.temp > 78) return 'warning';
+  }
+
+  return 'nominal';
+}
+
+/**
+ * Attaches a per-frame pulsing emissive glow to a mesh's standard material
+ * whenever its asset is in a warning/critical state. Critical pulses faster
+ * and brighter than warning so severity reads at a glance from across the
+ * 3D twin without needing to open the inspector panel.
+ */
+function useAnomalyPulse(
+  materialRef: React.MutableRefObject<THREE.MeshStandardMaterial | null | undefined>,
+  severity: AnomalySeverity,
+  interactionOverrideActive: boolean
+) {
+  useFrame((state) => {
+    const mat = materialRef.current;
+    if (!mat || severity === 'nominal' || interactionOverrideActive) return;
+    const speed = severity === 'critical' ? 3.4 : 1.6;
+    const baseIntensity = severity === 'critical' ? 0.28 : 0.14;
+    const depth = severity === 'critical' ? 0.4 : 0.22;
+    const pulse = (Math.sin(state.clock.elapsedTime * speed) + 1) / 2; // 0..1
+    mat.emissive.set(ANOMALY_GLOW_COLOR[severity]);
+    mat.emissiveIntensity = baseIntensity + pulse * depth;
+  });
+}
+
 // Helper functions for procedural textures (panel seams, snow crystals, compacted tire tracks)
 let globalIndustrialPanelTexture: THREE.CanvasTexture | null = null;
 const getIndustrialPanelTexture = () => {
@@ -761,8 +825,10 @@ const AdminCore: React.FC<{
   emergencyMode: boolean;
 }> = ({ asset, isSelected, liveStatus, onClick, isNight, emergencyMode }) => {
   const [hovered, setHovered] = useState(false);
-  const isCritical = liveStatus?.status === 'critical' || emergencyMode;
+  const anomalySeverity = getAnomalySeverity(liveStatus, emergencyMode);
   const fanRef = useRef<THREE.Mesh>(null);
+  const bodyMaterialRef = useRef<THREE.MeshStandardMaterial>(null);
+  useAnomalyPulse(bodyMaterialRef, anomalySeverity, isSelected || hovered);
 
   useFrame((state) => {
     if (fanRef.current) {
@@ -790,13 +856,14 @@ const AdminCore: React.FC<{
       >
         <boxGeometry args={asset.size} />
         <meshStandardMaterial
+          ref={bodyMaterialRef}
           color={asset.color}
           bumpMap={getIndustrialPanelTexture() || undefined}
           bumpScale={0.035}
           roughness={0.35}
           metalness={0.6}
-          emissive={isSelected ? '#38bdf8' : hovered ? '#0ea5e9' : isCritical ? '#ef4444' : '#000000'}
-          emissiveIntensity={isSelected ? 0.65 : hovered ? 0.4 : isCritical ? 0.35 : 0}
+          emissive={isSelected ? '#38bdf8' : hovered ? '#0ea5e9' : anomalySeverity !== 'nominal' ? ANOMALY_GLOW_COLOR[anomalySeverity] : '#000000'}
+          emissiveIntensity={isSelected ? 0.65 : hovered ? 0.4 : anomalySeverity === 'critical' ? 0.35 : anomalySeverity === 'warning' ? 0.18 : 0}
         />
       </mesh>
 
@@ -906,8 +973,23 @@ const LivingModule: React.FC<{
   liveStatus: any;
   onClick: () => void;
   isNight: boolean;
-}> = ({ asset, isSelected, onClick, isNight }) => {
+}> = ({ asset, isSelected, liveStatus, onClick, isNight }) => {
   const [hovered, setHovered] = useState(false);
+  const anomalySeverity = getAnomalySeverity(liveStatus);
+  const podMaterialRefs = useRef<(THREE.MeshStandardMaterial | null)[]>([]);
+
+  useFrame((state) => {
+    if (anomalySeverity === 'nominal' || isSelected || hovered) return;
+    const speed = anomalySeverity === 'critical' ? 3.4 : 1.6;
+    const baseIntensity = anomalySeverity === 'critical' ? 0.28 : 0.14;
+    const depth = anomalySeverity === 'critical' ? 0.4 : 0.22;
+    const pulse = (Math.sin(state.clock.elapsedTime * speed) + 1) / 2;
+    podMaterialRefs.current.forEach((mat) => {
+      if (!mat) return;
+      mat.emissive.set(ANOMALY_GLOW_COLOR[anomalySeverity]);
+      mat.emissiveIntensity = baseIntensity + pulse * depth;
+    });
+  });
 
   return (
     <group position={asset.position} onClick={(e) => { e.stopPropagation(); onClick(); }}>
@@ -940,13 +1022,14 @@ const LivingModule: React.FC<{
           >
             <cylinderGeometry args={[0.62, 0.62, 1.8, 16]} />
             <meshStandardMaterial
+              ref={(el) => { podMaterialRefs.current[podIdx] = el; }}
               color={asset.color}
               bumpMap={getIndustrialPanelTexture() || undefined}
               bumpScale={0.035}
               roughness={0.3}
               metalness={0.7}
-              emissive={isSelected ? '#38bdf8' : hovered ? '#0ea5e9' : '#000000'}
-              emissiveIntensity={isSelected ? 0.65 : hovered ? 0.4 : 0}
+              emissive={isSelected ? '#38bdf8' : hovered ? '#0ea5e9' : anomalySeverity !== 'nominal' ? ANOMALY_GLOW_COLOR[anomalySeverity] : '#000000'}
+              emissiveIntensity={isSelected ? 0.65 : hovered ? 0.4 : anomalySeverity === 'critical' ? 0.3 : anomalySeverity === 'warning' ? 0.15 : 0}
             />
           </mesh>
 
@@ -1023,9 +1106,12 @@ const ScienceLabs: React.FC<{
   liveStatus: any;
   onClick: () => void;
   isNight: boolean;
-}> = ({ asset, isSelected, onClick }) => {
+}> = ({ asset, isSelected, liveStatus, onClick }) => {
   const [hovered, setHovered] = useState(false);
   const scannerRef = useRef<THREE.Group>(null);
+  const anomalySeverity = getAnomalySeverity(liveStatus);
+  const coreMaterialRef = useRef<THREE.MeshStandardMaterial>(null);
+  useAnomalyPulse(coreMaterialRef, anomalySeverity, isSelected || hovered);
 
   useFrame((state) => {
     if (scannerRef.current) {
@@ -1046,13 +1132,14 @@ const ScienceLabs: React.FC<{
       >
         <cylinderGeometry args={[asset.size[0] / 2, asset.size[0] / 2, asset.size[1], 8]} />
         <meshStandardMaterial
+          ref={coreMaterialRef}
           color={asset.color}
           bumpMap={getIndustrialPanelTexture() || undefined}
           bumpScale={0.035}
           roughness={0.28}
           metalness={0.72}
-          emissive={isSelected ? '#38bdf8' : hovered ? '#0ea5e9' : '#000000'}
-          emissiveIntensity={isSelected ? 0.65 : hovered ? 0.4 : 0}
+          emissive={isSelected ? '#38bdf8' : hovered ? '#0ea5e9' : anomalySeverity !== 'nominal' ? ANOMALY_GLOW_COLOR[anomalySeverity] : '#000000'}
+          emissiveIntensity={isSelected ? 0.65 : hovered ? 0.4 : anomalySeverity === 'critical' ? 0.35 : anomalySeverity === 'warning' ? 0.18 : 0}
         />
       </mesh>
 
@@ -1301,8 +1388,11 @@ const LogisticsWarehouse: React.FC<{
   liveStatus: any;
   onClick: () => void;
   isNight: boolean;
-}> = ({ asset, isSelected, onClick }) => {
+}> = ({ asset, isSelected, liveStatus, onClick }) => {
   const [hovered, setHovered] = useState(false);
+  const anomalySeverity = getAnomalySeverity(liveStatus);
+  const roofMaterialRef = useRef<THREE.MeshStandardMaterial>(null);
+  useAnomalyPulse(roofMaterialRef, anomalySeverity, isSelected || hovered);
 
   return (
     <group position={asset.position} onClick={(e) => { e.stopPropagation(); onClick(); }}>
@@ -1322,13 +1412,14 @@ const LogisticsWarehouse: React.FC<{
       >
         <cylinderGeometry args={[asset.size[1], asset.size[1], asset.size[0], 16, 1, false, 0, Math.PI]} />
         <meshStandardMaterial
+          ref={roofMaterialRef}
           color={asset.color}
           bumpMap={getIndustrialPanelTexture() || undefined}
           bumpScale={0.045}
           roughness={0.45}
           metalness={0.7}
-          emissive={isSelected ? '#38bdf8' : hovered ? '#0ea5e9' : '#000000'}
-          emissiveIntensity={isSelected ? 0.65 : hovered ? 0.4 : 0}
+          emissive={isSelected ? '#38bdf8' : hovered ? '#0ea5e9' : anomalySeverity !== 'nominal' ? ANOMALY_GLOW_COLOR[anomalySeverity] : '#000000'}
+          emissiveIntensity={isSelected ? 0.65 : hovered ? 0.4 : anomalySeverity === 'critical' ? 0.35 : anomalySeverity === 'warning' ? 0.18 : 0}
           side={THREE.DoubleSide}
         />
       </mesh>
@@ -1412,6 +1503,11 @@ const GeneratorUnit: React.FC<{
 }> = ({ asset, isSelected, liveStatus, onClick, isNight, emergencyMode = false, backupActive = false }) => {
   const isRunning = liveStatus?.status === 'running' || (liveStatus?.load > 0);
   const isCritical = liveStatus?.status === 'critical' || liveStatus?.temp > 85 || emergencyMode;
+  const anomalySeverity: AnomalySeverity = isCritical
+    ? 'critical'
+    : (liveStatus?.status === 'degraded' || (typeof liveStatus?.temp === 'number' && liveStatus.temp > 78) || (typeof liveStatus?.health === 'number' && liveStatus.health < 75))
+      ? 'warning'
+      : 'nominal';
   const fanRef = useRef<THREE.Mesh>(null);
   const [hovered, setHovered] = useState(false);
 
@@ -1421,14 +1517,23 @@ const GeneratorUnit: React.FC<{
     if (fanRef.current && isRunning) {
       fanRef.current.rotation.y = state.clock.getElapsedTime() * 16.0;
     }
-    // Backup-power pulse: distinct from the critical-red state, so an
-    // operator can see backup engage ambiently without it being confused
-    // for a fault. Previously backupActive wasn't wired to any visual at
-    // all — the shell only ever reacted to isSelected/hovered/isCritical.
-    if (shellMaterialRef.current && backupActive && !isCritical && !isSelected && !hovered) {
-      const pulse = (Math.sin(state.clock.getElapsedTime() * 3) + 1) / 2;
-      shellMaterialRef.current.emissive.set('#38bdf8');
-      shellMaterialRef.current.emissiveIntensity = 0.15 + pulse * 0.25;
+    if (shellMaterialRef.current && !isSelected && !hovered) {
+      if (anomalySeverity !== 'nominal') {
+        // Anomaly pulse takes priority — faster/brighter for critical so
+        // severity reads at a glance across the whole 3D twin.
+        const speed = anomalySeverity === 'critical' ? 3.4 : 1.6;
+        const baseIntensity = anomalySeverity === 'critical' ? 0.28 : 0.14;
+        const depth = anomalySeverity === 'critical' ? 0.4 : 0.22;
+        const pulse = (Math.sin(state.clock.elapsedTime * speed) + 1) / 2;
+        shellMaterialRef.current.emissive.set(ANOMALY_GLOW_COLOR[anomalySeverity]);
+        shellMaterialRef.current.emissiveIntensity = baseIntensity + pulse * depth;
+      } else if (backupActive) {
+        // Backup-power pulse: distinct blue tone so an operator can see
+        // backup engage ambiently without it being confused for a fault.
+        const pulse = (Math.sin(state.clock.getElapsedTime() * 3) + 1) / 2;
+        shellMaterialRef.current.emissive.set('#38bdf8');
+        shellMaterialRef.current.emissiveIntensity = 0.15 + pulse * 0.25;
+      }
     }
   });
 
@@ -1523,20 +1628,21 @@ const GeneratorUnit: React.FC<{
       >
         <boxGeometry args={asset.size} />
         <meshStandardMaterial
-          color={isCritical ? '#ef4444' : '#ea580c'} // bright industrial orange
+          ref={shellMaterialRef}
+          color={anomalySeverity === 'critical' ? '#ef4444' : anomalySeverity === 'warning' ? '#f59e0b' : '#ea580c'} // bright industrial orange, tinted by severity
           bumpMap={getIndustrialPanelTexture() || undefined}
           bumpScale={0.03}
           roughness={0.3}
           metalness={0.7}
-          emissive={isSelected ? '#38bdf8' : hovered ? '#0ea5e9' : isCritical ? '#ef4444' : '#000000'}
-          emissiveIntensity={isSelected ? 0.65 : hovered ? 0.4 : isCritical ? 0.35 : 0}
+          emissive={isSelected ? '#38bdf8' : hovered ? '#0ea5e9' : anomalySeverity !== 'nominal' ? ANOMALY_GLOW_COLOR[anomalySeverity] : '#000000'}
+          emissiveIntensity={isSelected ? 0.65 : hovered ? 0.4 : anomalySeverity === 'critical' ? 0.35 : anomalySeverity === 'warning' ? 0.18 : 0}
         />
       </mesh>
 
       {/* Glowing Status diagnostic screen */}
       <mesh position={[asset.size[0] / 2 + 0.015, 0.1, 0]} rotation={[0, Math.PI / 2, 0]}>
         <planeGeometry args={[0.5, 0.3]} />
-        <meshBasicMaterial color={isCritical ? '#ef4444' : isRunning ? '#10b981' : '#64748b'} />
+        <meshBasicMaterial color={anomalySeverity === 'critical' ? '#ef4444' : anomalySeverity === 'warning' ? '#f59e0b' : isRunning ? '#10b981' : '#64748b'} />
       </mesh>
 
       {/* Electrical conduit loops */}
@@ -1716,10 +1822,13 @@ const ProceduralBuilding: React.FC<{
   onClick: () => void;
 }> = ({ asset, isSelected, liveStatus, onClick }) => {
   const meshRef = useRef<THREE.Mesh>(null);
+  const bodyMaterialRef = useRef<THREE.MeshStandardMaterial>(null);
   const [hovered, setHovered] = useState(false);
 
   let primaryColor = asset.color;
   let status = liveStatus?.status || 'nominal';
+  const anomalySeverity = getAnomalySeverity(liveStatus);
+  useAnomalyPulse(bodyMaterialRef, anomalySeverity, isSelected || hovered);
 
   if (status === 'critical') {
     primaryColor = '#ef4444';
@@ -1828,13 +1937,14 @@ const ProceduralBuilding: React.FC<{
       >
         <boxGeometry args={asset.size} />
         <meshStandardMaterial
+          ref={bodyMaterialRef}
           color={primaryColor}
           bumpMap={getIndustrialPanelTexture() || undefined}
           bumpScale={0.03}
           roughness={0.4}
           metalness={0.5}
-          emissive={isSelected ? '#38bdf8' : hovered ? '#0ea5e9' : '#000000'}
-          emissiveIntensity={isSelected ? 0.7 : hovered ? 0.4 : 0}
+          emissive={isSelected ? '#38bdf8' : hovered ? '#0ea5e9' : anomalySeverity !== 'nominal' ? ANOMALY_GLOW_COLOR[anomalySeverity] : '#000000'}
+          emissiveIntensity={isSelected ? 0.7 : hovered ? 0.4 : anomalySeverity === 'critical' ? 0.35 : anomalySeverity === 'warning' ? 0.18 : 0}
         />
       </mesh>
 

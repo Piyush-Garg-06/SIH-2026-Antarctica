@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { io, Socket } from 'socket.io-client';
 import {
   ShieldAlert, Activity, Droplet, Wifi, WifiOff,
@@ -13,7 +13,22 @@ import {
 } from 'recharts';
 
 import { StationMap } from './components/StationMap';
-import { DigitalTwin3D } from './components/DigitalTwin3D';
+// The 3D twin pulls in three.js + @react-three/fiber + @react-three/drei,
+// which is by far the heaviest chunk of the app. Lazy-loading it means that
+// weight only downloads once the user actually opens the 3D Twin tab,
+// instead of blocking the initial app load for every user on every tab.
+const DigitalTwin3D = lazy(() =>
+  import('./components/DigitalTwin3D').then((mod) => ({ default: mod.DigitalTwin3D }))
+);
+
+// Shown while the 3D twin chunk downloads and its WebGL scene spins up, so
+// the tab never looks frozen — matches the app's dark glass aesthetic.
+const TwinLoadingFallback: React.FC = () => (
+  <div className="flex-1 w-full h-full flex flex-col items-center justify-center bg-slate-950/15 text-slate-400 gap-3">
+    <RefreshCw className="h-8 w-8 animate-spin text-sky-500" />
+    <p className="text-xs font-mono uppercase tracking-wider text-slate-500">Initializing Digital Twin Renderer…</p>
+  </div>
+);
 // Establish backend connection details
 const BACKEND_URL = `http://${window.location.hostname}:5000`;
 
@@ -177,7 +192,60 @@ const EnergyFlowSchematic: React.FC<{ telemetry: any; activeStation: string }> =
 export default function App() {
   // Navigation & Role states
   const [activeStation, setActiveStation] = useState<'maitri' | 'bharati'>('maitri');
+
+  // Interactive Environment Controls (Simulation Deck sliders). These were
+  // previously hardcoded `disabled` mirrors of live telemetry — now they're
+  // real operator inputs. windOverride/loadOverride hold the slider's local
+  // (optimistic) value while dragging; envControlMode tracks whether each
+  // control is under manual operator control or back on the automatic
+  // simulation baseline.
+  const [windOverride, setWindOverride] = useState<number | null>(null);
+  const [loadOverride, setLoadOverride] = useState<number | null>(null);
+  const [envControlMode, setEnvControlMode] = useState<{ wind: 'auto' | 'manual'; load: 'auto' | 'manual' }>({ wind: 'auto', load: 'auto' });
+  const envOverrideDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const pushEnvOverride = (next: { windSpeed?: number; generatorLoadBaseline?: number }) => {
+    if (envOverrideDebounceRef.current) clearTimeout(envOverrideDebounceRef.current);
+    envOverrideDebounceRef.current = setTimeout(() => {
+      fetch(`${BACKEND_URL}/api/environment/override`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stationId: activeStation, ...next })
+      }).catch(() => addSystemLog('Environment override failed to reach mainland gateway.'));
+    }, 250); // debounced so a slider drag doesn't spam requests mid-drag
+  };
+
+  const clearEnvOverride = (control: 'wind' | 'load') => {
+    setEnvControlMode(prev => ({ ...prev, [control]: 'auto' }));
+    if (control === 'wind') setWindOverride(null); else setLoadOverride(null);
+    fetch(`${BACKEND_URL}/api/environment/override`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stationId: activeStation, clear: true })
+    }).catch(() => addSystemLog('Environment override reset failed to reach mainland gateway.'));
+    addSystemLog(`${control === 'wind' ? 'Wind velocity' : 'Generator load baseline'} control returned to automatic simulation.`);
+  };
   const [activeTab, setActiveTab] = useState<string>('overview');
+  // Only true once the user has opened the 3D Twin tab at least once. Keeps
+  // the heavy WebGL scene (three.js + shadow maps + geometry) out of the
+  // initial render entirely, then — once mounted — stays mounted so
+  // switching back to the tab afterwards really is instant, with no
+  // remount/reload cost.
+  const [hasOpenedTwin, setHasOpenedTwin] = useState(false);
+  useEffect(() => {
+    if (activeTab === '3d-twin' && !hasOpenedTwin) {
+      setHasOpenedTwin(true);
+    }
+  }, [activeTab, hasOpenedTwin]);
+
+  // Environment overrides are per-station server-side — clear the local
+  // slider UI state on station switch so it doesn't show a stale manual
+  // value from the previously active station.
+  useEffect(() => {
+    setWindOverride(null);
+    setLoadOverride(null);
+    setEnvControlMode({ wind: 'auto', load: 'auto' });
+  }, [activeStation]);
   const [role, setRole] = useState<string>('Operations Manager');
   const [emergencyMode, setEmergencyMode] = useState<boolean>(false);
   const [linkStatus, setLinkStatus] = useState<'online' | 'offline'>('online');
@@ -1026,17 +1094,19 @@ export default function App() {
             </div>
           )}
           <div className="flex-1 w-full h-full">
-            <DigitalTwin3D
-              telemetry={telemetry}
-              selectedAssetId={selectedAsset ? selectedAsset.id : null}
-              onAssetSelect={(asset) => {
-                setSelectedAsset(asset);
-                addSystemLog(`Inspected building node: ${asset.name}`);
-              }}
-              activeScenario={activeScenario}
-              emergencyMode={emergencyMode}
-              isNight={isNight}
-            />
+            <Suspense fallback={<TwinLoadingFallback />}>
+              <DigitalTwin3D
+                telemetry={telemetry}
+                selectedAssetId={selectedAsset ? selectedAsset.id : null}
+                onAssetSelect={(asset) => {
+                  setSelectedAsset(asset);
+                  addSystemLog(`Inspected building node: ${asset.name}`);
+                }}
+                activeScenario={activeScenario}
+                emergencyMode={emergencyMode}
+                isNight={isNight}
+              />
+            </Suspense>
           </div>
         </div>
 
@@ -1700,7 +1770,11 @@ export default function App() {
                   { id: 'snowstorm', label: 'Category 5 Blizzard' },
                   { id: 'generator_failure', label: 'Generator G1 Trip' },
                   { id: 'water_shortage', label: 'Water Line Freeze' },
-                  { id: 'fuel_shortage', label: 'Fuel Depot Leak' }
+                  { id: 'fuel_shortage', label: 'Fuel Depot Leak' },
+                  { id: 'battery_failure', label: 'Battery Bank Fault' },
+                  { id: 'comms_outage', label: 'SATCOM Blackout' },
+                  { id: 'supply_delay', label: 'Resupply Flight Delay' },
+                  { id: 'equipment_overload', label: 'Grid Overload Surge' }
                 ].map(sc => (
                   <button
                     key={sc.id}
@@ -1767,22 +1841,72 @@ export default function App() {
               <div className="flex flex-col gap-4 mt-2">
                 <div className="flex flex-col gap-2">
                   <div className="flex justify-between text-xs font-semibold">
-                    <span className="text-slate-400">Wind Velocity Limit</span>
-                    <span className="text-indigo-400">{telemetry.weather.windSpeed} km/h</span>
+                    <span className="text-slate-400">
+                      Wind Velocity Limit
+                      {envControlMode.wind === 'manual' && (
+                        <span className="ml-2 text-amber-400 text-[9px] uppercase tracking-wider font-bold">Manual Override</span>
+                      )}
+                    </span>
+                    <span className="text-indigo-400">{Math.round(windOverride ?? telemetry.weather.windSpeed)} km/h</span>
                   </div>
-                  <input type="range" min="0" max="150" value={telemetry.weather.windSpeed} disabled className="accent-indigo-500 w-full" />
+                  <input
+                    type="range"
+                    min="0"
+                    max="150"
+                    value={windOverride ?? telemetry.weather.windSpeed}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setWindOverride(val);
+                      setEnvControlMode(prev => ({ ...prev, wind: 'manual' }));
+                      pushEnvOverride({ windSpeed: val });
+                    }}
+                    className="accent-indigo-500 w-full cursor-pointer"
+                  />
+                  {envControlMode.wind === 'manual' && (
+                    <button
+                      onClick={() => clearEnvOverride('wind')}
+                      className="self-start text-[9px] uppercase font-bold tracking-wider text-slate-500 hover:text-indigo-400 transition-all"
+                    >
+                      Return to automatic simulation
+                    </button>
+                  )}
                 </div>
 
                 <div className="flex flex-col gap-2">
                   <div className="flex justify-between text-xs font-semibold">
-                    <span className="text-slate-400">Generator load baseline</span>
-                    <span className="text-indigo-400">{telemetry.powerGrid.load} kW</span>
+                    <span className="text-slate-400">
+                      Generator load baseline
+                      {envControlMode.load === 'manual' && (
+                        <span className="ml-2 text-amber-400 text-[9px] uppercase tracking-wider font-bold">Manual Override</span>
+                      )}
+                    </span>
+                    <span className="text-indigo-400">{Math.round(loadOverride ?? telemetry.powerGrid.load)} kW</span>
                   </div>
-                  <input type="range" min="40" max="300" value={telemetry.powerGrid.load} disabled className="accent-indigo-500 w-full" />
+                  <input
+                    type="range"
+                    min="40"
+                    max="300"
+                    value={loadOverride ?? telemetry.powerGrid.load}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setLoadOverride(val);
+                      setEnvControlMode(prev => ({ ...prev, load: 'manual' }));
+                      pushEnvOverride({ generatorLoadBaseline: val });
+                    }}
+                    className="accent-indigo-500 w-full cursor-pointer"
+                  />
+                  {envControlMode.load === 'manual' && (
+                    <button
+                      onClick={() => clearEnvOverride('load')}
+                      className="self-start text-[9px] uppercase font-bold tracking-wider text-slate-500 hover:text-indigo-400 transition-all"
+                    >
+                      Return to automatic simulation
+                    </button>
+                  )}
                 </div>
 
                 <div className="text-xs text-slate-400 border-t border-white/5 pt-3 leading-relaxed mt-1">
-                  Manual environmental parameter sliders are locked under administrative operations mode. Deploy What-If cards to simulate load responses.
+                  Drag a slider to send a live operator override to the station. Values blend in over a few seconds rather than snapping, matching real HVAC/generator response lag. What-If cards below still work independently for scripted stress scenarios.
                 </div>
               </div>
             </div>
@@ -2349,9 +2473,11 @@ export default function App() {
             <>
               {activeTab === 'overview' && renderOverview()}
               {activeTab === 'gis-map' && renderGisMap()}
-              <div className={activeTab === '3d-twin' ? 'flex-1 flex min-h-0 w-full h-full' : 'hidden'}>
-                {render3DTwin()}
-              </div>
+              {hasOpenedTwin && (
+                <div className={activeTab === '3d-twin' ? 'flex-1 flex min-h-0 w-full h-full' : 'hidden'}>
+                  {render3DTwin()}
+                </div>
+              )}
               {activeTab === 'power' && renderPower()}
               {activeTab === 'resources' && renderResources()}
               {activeTab === 'equipment' && renderEquipment()}

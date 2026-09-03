@@ -62,6 +62,14 @@ const activeScenarios = {
   bharati: 'none'
 };
 
+// Manual operator overrides from the mainland's Interactive Environment
+// Controls sliders (wind velocity limit / generator load baseline). Cleared
+// back to {} when an operator releases a control back to automatic.
+const envOverrides = {
+  maitri: {},
+  bharati: {}
+};
+
 // Rolling window for anomaly detection (Day 11)
 const rollingWindows = {
   maitri: { genTemp: [], batteryTemp: [], fuelRate: [] },
@@ -176,6 +184,21 @@ client.on('message', (topic, message) => {
         activeStates[stationId].riskLevel = determineRiskLevel(activeStates[stationId].healthScore);
       }
 
+      else if (type === 'env_override') {
+        // { windSpeed?: number, generatorLoadBaseline?: number, clear?: boolean }
+        if (cmdPayload && cmdPayload.clear) {
+          envOverrides[stationId] = {};
+          console.log(`Environment override cleared for ${stationId}`);
+        } else {
+          envOverrides[stationId] = {
+            ...envOverrides[stationId],
+            ...(typeof cmdPayload.windSpeed === 'number' ? { windSpeed: cmdPayload.windSpeed } : {}),
+            ...(typeof cmdPayload.generatorLoadBaseline === 'number' ? { generatorLoadBaseline: cmdPayload.generatorLoadBaseline } : {}),
+          };
+          console.log(`Environment override updated for ${stationId}:`, envOverrides[stationId]);
+        }
+      }
+
       // Publish Ack
       client.publish(`station/${stationId}/commands/ack`, JSON.stringify({ cmdId, status: 'executed' }), { qos: 2 });
     }
@@ -235,7 +258,7 @@ setInterval(() => {
     const scenario = activeScenarios[id];
 
     // Simulate step
-    const nextState = simulateNextState(activeStates[id], scenario, 0.02, activeAlerts[id]);
+    const nextState = simulateNextState(activeStates[id], scenario, 0.02, activeAlerts[id], envOverrides[id]);
     activeStates[id] = nextState;
 
     // Z-Score Anomaly detection (Day 11)

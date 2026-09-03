@@ -732,6 +732,41 @@ app.get('/api/link/status', async (req, res) => {
   }
 });
 
+// Manual Environment Override (Interactive Environment Controls sliders).
+// Lightweight/ephemeral by design — unlike scenario triggers, this isn't
+// persisted to MongoDB or versioned, since it's a live slider drag rather
+// than a discrete operational event worth auditing. The station-agent
+// blends toward the requested value over a few ticks rather than snapping,
+// so the twin/telemetry read naturally instead of jumping.
+app.post('/api/environment/override', (req, res) => {
+  const { stationId, windSpeed, generatorLoadBaseline, clear } = req.body;
+  const id = stationId ? stationId.toLowerCase() : null;
+
+  if (id !== 'maitri' && id !== 'bharati') {
+    return res.status(400).json({ error: 'Invalid stationId' });
+  }
+
+  if (!clear) {
+    if (windSpeed !== undefined && (typeof windSpeed !== 'number' || windSpeed < 0 || windSpeed > 150)) {
+      return res.status(400).json({ error: 'windSpeed must be a number between 0 and 150' });
+    }
+    if (generatorLoadBaseline !== undefined && (typeof generatorLoadBaseline !== 'number' || generatorLoadBaseline < 40 || generatorLoadBaseline > 300)) {
+      return res.status(400).json({ error: 'generatorLoadBaseline must be a number between 40 and 300' });
+    }
+  }
+
+  const cmdId = `env_${Date.now()}`;
+  const mqttPayload = {
+    cmdId,
+    type: 'env_override',
+    payload: clear ? { clear: true } : { windSpeed, generatorLoadBaseline },
+  };
+
+  mqttClient.publish(`mainland/${id}/commands`, JSON.stringify(mqttPayload), { qos: 1 });
+
+  res.json({ success: true, cmdId, applied: clear ? { clear: true } : { windSpeed, generatorLoadBaseline } });
+});
+
 // Start Server
 server.listen(PORT, () => {
   console.log(`📡 POLARIS Mainland Control Server running on port ${PORT}`);
