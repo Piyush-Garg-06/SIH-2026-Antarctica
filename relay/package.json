@@ -1,0 +1,13 @@
+{
+  "name": "polaris-relay",
+  "version": "1.0.0",
+  "description": "POLARIS Satellite Link Relay",
+  "main": "relay.js",
+  "scripts": {
+    "start": "node relay.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mqtt": "^5.15.2"
+  }
+}

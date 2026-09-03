@@ -1,0 +1,13 @@
+{
+  "name": "station-agent",
+  "version": "1.0.0",
+  "description": "POLARIS Station Agent",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js"
+  },
+  "dependencies": {
+    "aedes": "^1.1.1",
+    "mqtt": "^5.15.2"
+  }
+}

@@ -1,0 +1,36 @@
+# Dependency directories
+node_modules/
+**/node_modules/
+
+# Environment variables
+.env
+**/.env
+.env*.local
+
+# Build outputs
+dist/
+**/dist/
+build/
+**/build/
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+
+# Temporary extraction files
+edit_target_*.txt
+extract*.js
+pb_strings.txt
+original_App_tsx.txt
+find_app_in_pb.js
+search_strings_in_pb.js
+test_decompress.js
+check_pb_encoding.js
+dump_pb_strings.js
+edit_target_*.txt
