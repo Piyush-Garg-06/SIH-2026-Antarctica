@@ -226,6 +226,7 @@ export default function App() {
   const [reportLoading, setReportLoading] = useState<boolean>(false);
 
   // Demo Wizard state
+  const [showDemoWizard, setShowDemoWizard] = useState<boolean>(true);
   const [demoStep, setDemoStep] = useState<number>(0);
   // Subsystems Diagnostic Health & Self-Test State
   const [activeSelfTestId, setActiveSelfTestId] = useState<string | null>(null);
