@@ -610,15 +610,18 @@ export default function App() {
     } else {
       // Local client simulation trigger
       setActiveScenario(scenarioName);
+      if (scenarioName === 'comms_outage') {
+        setLinkStatus('offline');
+      }
       // Generate mock 7 day forecast data
       const mockTimeline = Array.from({ length: 7 }, (_, i) => ({
         day: i,
-        fuel: Math.round((telemetry?.resources.fuel || 40000) - i * 1500 * (scenarioName === 'fuel_shortage' ? 3 : 1)),
-        water: Math.round((telemetry?.resources.water || 12000) - i * 400 * (scenarioName === 'water_shortage' ? 4 : 1)),
-        battery: Math.max(0, 90 - i * (scenarioName === 'generator_failure' ? 15 : scenarioName === 'battery_failure' ? 30 : 2)),
-        power: (telemetry?.powerGrid.load || 120) + (scenarioName === 'snowstorm' ? i * 12 : 0),
-        healthScore: Math.max(10, 95 - i * (scenarioName === 'generator_failure' ? 8 : 1)),
-        risk: scenarioName === 'snowstorm' ? 'High' : 'Medium'
+        fuel: Math.round((telemetry?.resources?.fuel || 40000) - i * 1500 * (scenarioName === 'fuel_shortage' ? 3 : 1)),
+        water: Math.round((telemetry?.resources?.water || 12000) - i * 400 * (scenarioName === 'water_shortage' ? 4 : 1)),
+        battery: scenarioName === 'battery_failure' ? (i === 0 ? 0 : Math.max(0, 10 - i * 2)) : Math.max(0, 90 - i * (scenarioName === 'generator_failure' ? 15 : 2)),
+        power: scenarioName === 'equipment_overload' ? 148 + i * 2 : (telemetry?.powerGrid?.load || 120) + (scenarioName === 'snowstorm' ? i * 12 : 0),
+        healthScore: Math.max(10, 95 - i * (scenarioName === 'battery_failure' ? 12 : scenarioName === 'equipment_overload' ? 10 : scenarioName === 'generator_failure' ? 8 : 2)),
+        risk: (scenarioName === 'snowstorm' || scenarioName === 'battery_failure' || scenarioName === 'equipment_overload' || scenarioName === 'comms_outage' || scenarioName === 'supply_delay') ? 'Critical' : 'Medium'
       }));
       setForecastTimeline(mockTimeline);
     }
@@ -1946,13 +1949,30 @@ export default function App() {
               </div>
 
               {activeScenario !== 'none' && (
-                <div className="mt-3 flex justify-between items-center p-3.5 border border-red-900/40 bg-red-950/15 rounded-xl">
-                  <span className="text-red-400 font-bold uppercase text-xs">Active Scenario: {activeScenario.replace('_', ' ')}</span>
+                <div className="mt-3 flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 border border-red-500/40 bg-red-950/30 rounded-xl gap-3 animate-pulse">
+                  <div className="flex items-center gap-3">
+                    <span className="w-3 h-3 rounded-full bg-red-500 animate-ping"></span>
+                    <div>
+                      <span className="text-red-400 font-bold uppercase text-xs block">
+                        ACTIVE STRESS SCENARIO: {activeScenario.replace('_', ' ')}
+                      </span>
+                      <span className="text-slate-300 text-[11px] font-mono">
+                        {activeScenario === 'battery_failure' && '⚡ Impact: Battery SoC 0%, Thermal runaway, Emergency DC Bus engaged.'}
+                        {activeScenario === 'comms_outage' && '📡 Impact: Ku-Band SATCOM Down, Telemetry isolated, Local Store & Forward active.'}
+                        {activeScenario === 'supply_delay' && '📦 Impact: Polar vortex grounding payloads, Food Buffer: 4 Days, Medical: 35%.'}
+                        {activeScenario === 'equipment_overload' && '⚠️ Impact: Load 148 kW (123% Rating), Generator G1 Overheat 96°C.'}
+                        {activeScenario === 'snowstorm' && '❄️ Impact: Wind Speed 115 km/h, Temp -58°C, HVAC & Intakes under extreme load.'}
+                        {activeScenario === 'generator_failure' && '🔥 Impact: Main Generator G1 Trip, Auto-failover to G2/G3.'}
+                        {activeScenario === 'water_shortage' && '💧 Impact: Intake pipe freeze, Water reserve depletion active.'}
+                        {activeScenario === 'fuel_shortage' && '⛽ Impact: Fuel depot leak detected, Rationing protocols engaged.'}
+                      </span>
+                    </div>
+                  </div>
                   <button
                     onClick={resetScenario}
-                    className="p-1 px-3 border border-red-900/30 hover:border-red-500 hover:text-red-400 bg-slate-950 rounded-lg text-xs uppercase font-bold transition-all"
+                    className="p-2 px-4 border border-red-500/40 hover:border-red-400 hover:bg-red-900/50 text-red-300 bg-slate-950 rounded-lg text-xs uppercase font-bold transition-all shadow-lg shrink-0"
                   >
-                    Restore Baseline
+                    Restore Nominal Baseline
                   </button>
                 </div>
               )}

@@ -195,6 +195,23 @@ function simulateNextState(currentState, scenario = 'none', timeDeltaHours = 0.0
   // 3. Generator Status and Power Generation
   let targetGeneration = next.powerGrid.load;
   let availableCapacity = 0;
+  // Handle Overload & Generator Scenarios
+  if (scenario === 'equipment_overload') {
+    next.powerGrid.load = 148;
+    const gen1 = next.generators.find(g => g.id === 'gen_1');
+    if (gen1) {
+      gen1.temp = 96;
+      gen1.status = 'critical';
+      gen1.health = 35;
+    }
+    if (alertsQueue) {
+      pushAlert(alertsQueue, next.stationId, 'power', 'critical',
+        'GRID OVERLOAD SURGE: Station power consumption at 123% rating (148 kW). Generator G1 thermal breaker trip imminent!',
+        'Primary generator G1 operating at critical 96°C thermal boundary.',
+        'Shed non-essential research heating loads and spin up Emergency Generator G3 immediately.'
+      );
+    }
+  }
 
   if (scenario === 'generator_failure') {
     next.generators[0].status = 'offline';
@@ -238,7 +255,7 @@ function simulateNextState(currentState, scenario = 'none', timeDeltaHours = 0.0
       gen.health = Math.max(10, gen.health - wearRate * 2);
       gen.failureProb = Math.min(100, Math.round((100 - gen.health) * 0.5 + (gen.temp > 90 ? 20 : 0)));
 
-      if (gen.temp > 90 && alertsQueue) {
+      if (gen.temp > 90 && alertsQueue && scenario !== 'equipment_overload') {
         pushAlert(alertsQueue, next.stationId, 'generator', 'critical',
           `${gen.name} overheating detected (${Math.round(gen.temp)}°C)`,
           'High thermal stress can lead to sudden mechanical seize and immediate power blackout.',
@@ -257,7 +274,14 @@ function simulateNextState(currentState, scenario = 'none', timeDeltaHours = 0.0
   if (scenario === 'battery_failure') {
     next.powerGrid.batterySoc = 0;
     next.powerGrid.batteryHealth = 10;
-    next.powerGrid.batteryTemp = 48;
+    next.powerGrid.batteryTemp = 52;
+    if (alertsQueue) {
+      pushAlert(alertsQueue, next.stationId, 'battery', 'critical',
+        'CRITICAL BATTERY BANK FAULT: Thermal runaway detected. Zero electrical buffering capacity.',
+        'High risk of total power grid collapse if main generator trips.',
+        'Isolate damaged battery cell bank and switch to auxiliary DC bus.'
+      );
+    }
   } else {
     const defrostDrain = scenario === 'water_shortage' ? 12 : 0;
     if (powerDeficit > 0 || scenario === 'water_shortage') {
@@ -328,17 +352,42 @@ function simulateNextState(currentState, scenario = 'none', timeDeltaHours = 0.0
     );
   }
 
-  // Food
+  // Food & Medical
   const foodConsumptionPerCapita = 1;
   const dailyFoodUsage = next.population * foodConsumptionPerCapita;
   const hourlyFoodUsage = dailyFoodUsage / 24;
 
   if (scenario === 'supply_delay') {
-    next.resources.food = Math.max(10, next.resources.food - hourlyFoodUsage * timeDeltaHours * 3);
+    next.resources.foodDays = 4;
+    next.resources.food = 112;
+    next.resources.medicalSupplies = 35;
+    if (alertsQueue) {
+      pushAlert(alertsQueue, next.stationId, 'supply', 'critical',
+        'RESUPPLY FLIGHT DELAYED: Severe polar vortex grounding flight payloads for 30+ days.',
+        'Food rations buffer and medical inventory dropping below safety reserve margins.',
+        'Enforce strict daily ration management and prioritize medical inventory conservation.'
+      );
+    }
   } else {
     next.resources.food = Math.max(0, next.resources.food - hourlyFoodUsage * timeDeltaHours);
+    next.resources.foodDays = hourlyFoodUsage > 0 ? Math.round(next.resources.food / (hourlyFoodUsage * 24)) : 999;
   }
-  next.resources.foodDays = hourlyFoodUsage > 0 ? Math.round(next.resources.food / (hourlyFoodUsage * 24)) : 999;
+
+  // Comms Outage
+  if (scenario === 'comms_outage') {
+    const satEq = next.equipment.find(e => e.id === 'eq_satellite' || e.id === 'sat_dish_1');
+    if (satEq) {
+      satEq.health = 10;
+      satEq.status = 'critical';
+    }
+    if (alertsQueue) {
+      pushAlert(alertsQueue, next.stationId, 'comms', 'critical',
+        'SATCOM BLACKOUT: Ku-Band High-Gain Satellite Transceiver Failure. Station telemetry isolated.',
+        'Local store-and-forward telemetry queue active. Manual satellite realignment required.',
+        'Deploy antenna maintenance crew and engage HF backup radio frequency.'
+      );
+    }
+  }
 
   // Equipment
   next.equipment.forEach(eq => {

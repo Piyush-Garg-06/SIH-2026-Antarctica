@@ -111,7 +111,7 @@ export function simulateOfflineStep(currentState: any, scenario: string, timeDel
   if (scenario === 'battery_failure') {
     next.powerGrid.batterySoc = 0;
     next.powerGrid.batteryHealth = 10;
-    next.powerGrid.batteryTemp = 48;
+    next.powerGrid.batteryTemp = 52;
   } else {
     if (powerDeficit > 0) {
       const dischargeRate = (powerDeficit / 200) * 100;
@@ -156,19 +156,27 @@ export function simulateOfflineStep(currentState: any, scenario: string, timeDel
   }
   next.resources.waterDays = hourlyWaterUsage > 0 ? Math.round(next.resources.water / (hourlyWaterUsage * 24)) : 999;
 
-  // Food
+  // Food & Medical
   const hourlyFoodUsage = next.population / 24;
   if (scenario === 'supply_delay') {
-    next.resources.food = Math.max(10, next.resources.food - hourlyFoodUsage * timeDeltaHours * 3);
+    next.resources.foodDays = 4;
+    next.resources.food = 112;
+    next.resources.medicalSupplies = 35;
   } else {
     next.resources.food = Math.max(0, next.resources.food - hourlyFoodUsage * timeDeltaHours);
+    next.resources.foodDays = hourlyFoodUsage > 0 ? Math.round(next.resources.food / (hourlyFoodUsage * 24)) : 999;
   }
-  next.resources.foodDays = hourlyFoodUsage > 0 ? Math.round(next.resources.food / (hourlyFoodUsage * 24)) : 999;
 
   // Equipment updating
   next.equipment.forEach((eq: any) => {
     if (eq.id === 'eq_hvac' && scenario === 'snowstorm') {
       eq.health = Math.max(30, eq.health - 0.5 * timeDeltaHours * 5);
+    }
+    if (eq.id === 'eq_satellite' || eq.id === 'sat_dish_1') {
+      if (scenario === 'comms_outage') {
+        eq.health = 10;
+        eq.status = 'critical';
+      }
     }
     if (eq.id === 'eq_water_pump') {
       if (scenario === 'water_shortage' || next.weather.temp < -40) {
