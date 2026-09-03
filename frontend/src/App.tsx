@@ -468,24 +468,63 @@ export default function App() {
     return () => clearInterval(timer);
   }, [lastSyncedTime]);
 
-  // Persistent alarm sound during critical health / active scenario / emergency mode (independent of UI alert dismissal)
+  // Audio synthesis context and debounce control
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const lastBeepTimeRef = useRef<number>(0);
+
+  const playBeepSound = (freq = 880, duration = 0.12, type: OscillatorType = 'sine') => {
+    if (!soundEnabled) return;
+    const now = Date.now();
+    // Debounce to prevent overlapping/distorted beep sound artifacts
+    if (now - lastBeepTimeRef.current < 450) return;
+    lastBeepTimeRef.current = now;
+
+    try {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+
+      // Smooth gain envelope (soft attack & decay) to eliminate harsh audio popping
+      gain.gain.setValueAtTime(0.001, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.05, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + duration);
+    } catch (e) {
+      // Audio context blocked or unsupported
+    }
+  };
+
+  // Persistent alarm sound during critical health / emergency mode
   useEffect(() => {
     if (!soundEnabled) return;
 
     const isScenarioActive = telemetry && telemetry.activeScenario && telemetry.activeScenario !== 'none';
-    const isHealthDegraded = telemetry && (telemetry.healthScore ?? 100) < 85;
-    const hasCriticalAlerts = alerts && alerts.some(a => a.severity === 'critical');
-    const isStationCritical = emergencyMode || isHealthDegraded || isScenarioActive || hasCriticalAlerts;
+    const isCriticalHealth = telemetry && (telemetry.healthScore ?? 100) < 50;
+    const isStationCritical = emergencyMode || isCriticalHealth || isScenarioActive;
 
     if (isStationCritical) {
-      playBeepSound();
       const alarmInterval = setInterval(() => {
-        playBeepSound();
-      }, 2500);
+        playBeepSound(880, 0.12, 'sine');
+      }, 4000); // Smooth 4-second pulse
 
       return () => clearInterval(alarmInterval);
     }
-  }, [emergencyMode, telemetry?.healthScore, telemetry?.activeScenario, alerts, soundEnabled]);
+  }, [emergencyMode, (telemetry?.healthScore ?? 100) < 50, telemetry?.activeScenario, soundEnabled]);
 
   // Helper to trigger system event log
   const addSystemLog = (message: string) => {
@@ -499,7 +538,7 @@ export default function App() {
     setActiveSelfTestId(eqId);
     setSelfTestProgress(10);
     addSystemLog(`Initiated 12-point hardware self-test diagnostic sequence on: ${eqName}`);
-    if (soundEnabled) playBeepSound();
+    if (soundEnabled) playBeepSound(1040, 0.08, 'sine');
 
     let step = 10;
     const interval = setInterval(() => {
@@ -527,11 +566,11 @@ export default function App() {
           setSelfTestProgress(0);
 
           addSystemLog(`[DIAGNOSTIC PASSED] ${eqName} completed 12-point self-test. Actuators re-calibrated. Status: 100% OPERATIONAL.`);
-          if (soundEnabled) playBeepSound();
+          if (soundEnabled) playBeepSound(1200, 0.15, 'sine');
         }, 400);
       } else {
         setSelfTestProgress(step);
-        if (soundEnabled) playBeepSound();
+        if (soundEnabled) playBeepSound(900, 0.05, 'sine');
       }
     }, 300);
   };
@@ -542,23 +581,6 @@ export default function App() {
     setMutualAidRequest({ station: targetStation, time });
     setEmergencyRouteActive(true);
     addSystemLog(`[SIMULATED] Mutual aid request logged for ${targetStation}.`);
-  };
-
-  const playBeepSound = () => {
-    try {
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-      oscillator.type = 'sawtooth';
-      oscillator.frequency.setValueAtTime(350, audioContext.currentTime);
-      gainNode.gain.setValueAtTime(0.08, audioContext.currentTime);
-      oscillator.start();
-      oscillator.stop(audioContext.currentTime + 0.15);
-    } catch (e) {
-      // Audio context might be blocked by browser
-    }
   };
 
   // 3. Offline Sync logic (Store-and-Forward transmission)
