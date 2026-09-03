@@ -29,6 +29,93 @@ const TwinLoadingFallback: React.FC = () => (
     <p className="text-xs font-mono uppercase tracking-wider text-slate-500">Initializing Digital Twin Renderer…</p>
   </div>
 );
+
+// Rich Markdown renderer for Copilot AI chat responses
+const CopilotMarkdownMessage: React.FC<{ text: string }> = ({ text }) => {
+  const cleaned = text
+    .replace(/\*\*\*([^*]+):\*\*/g, '- **$1:**')
+    .replace(/\*\*\*([^*]+)\*\*\*/g, '**$1**');
+
+  const lines = cleaned.split('\n');
+
+  return (
+    <div className="space-y-1.5 text-slate-200">
+      {lines.map((line, idx) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div key={idx} className="h-1" />;
+
+        if (trimmed.startsWith('###')) {
+          const headerText = trimmed.replace(/^###\s*\*{0,2}/, '').replace(/\*{0,2}$/, '').trim();
+          return (
+            <div key={idx} className="font-outfit text-xs font-extrabold text-indigo-300 border-b border-indigo-500/20 pb-1 pt-1.5 flex items-center gap-2 uppercase tracking-wider">
+              <span className="h-1.5 w-1.5 rounded-full bg-indigo-400 animate-pulse" />
+              <span>{headerText}</span>
+            </div>
+          );
+        }
+
+        const isBullet = trimmed.startsWith('- ') || trimmed.startsWith('* ') || /^\d+\.\s/.test(trimmed);
+        if (isBullet) {
+          const bulletContent = trimmed.replace(/^([-*]|\d+\.)\s*/, '');
+          return (
+            <div key={idx} className="flex items-start gap-2 text-[11px] leading-relaxed pl-1">
+              <span className="text-indigo-400 font-bold mt-0.5">•</span>
+              <div className="flex-1">
+                {renderInlineMarkdown(bulletContent)}
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <p key={idx} className="text-[11px] leading-relaxed">
+            {renderInlineMarkdown(trimmed)}
+          </p>
+        );
+      })}
+    </div>
+  );
+};
+
+function renderInlineMarkdown(str: string) {
+  const parts: React.ReactNode[] = [];
+  const regex = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  let lastIdx = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(str)) !== null) {
+    if (match.index > lastIdx) {
+      parts.push(str.substring(lastIdx, match.index));
+    }
+    const token = match[0];
+    if (token.startsWith('`') && token.endsWith('`')) {
+      parts.push(
+        <code key={match.index} className="bg-slate-900 border border-white/10 px-1.5 py-0.5 rounded font-mono text-[10px] text-cyan-300">
+          {token.slice(1, -1)}
+        </code>
+      );
+    } else if (token.startsWith('**') && token.endsWith('**')) {
+      parts.push(
+        <strong key={match.index} className="font-bold text-white">
+          {token.slice(2, -2)}
+        </strong>
+      );
+    } else if (token.startsWith('*') && token.endsWith('*')) {
+      parts.push(
+        <em key={match.index} className="italic text-slate-300">
+          {token.slice(1, -1)}
+        </em>
+      );
+    }
+    lastIdx = regex.lastIndex;
+  }
+
+  if (lastIdx < str.length) {
+    parts.push(str.substring(lastIdx));
+  }
+
+  return parts;
+}
 // Establish backend connection details
 const BACKEND_URL = `http://${window.location.hostname}:5000`;
 
@@ -2138,9 +2225,11 @@ export default function App() {
                     ? 'border-indigo-500/20 bg-indigo-600/10'
                     : 'border-white/5 bg-slate-900/30'
                     }`}>
-                    {m.text.split('\n').map((line, i) => (
-                      <p key={i} className="mb-1.5">{line}</p>
-                    ))}
+                    {m.sender === 'user' ? (
+                      <p className="text-[11px] leading-relaxed">{m.text}</p>
+                    ) : (
+                      <CopilotMarkdownMessage text={m.text} />
+                    )}
                   </div>
                 </div>
               ))}

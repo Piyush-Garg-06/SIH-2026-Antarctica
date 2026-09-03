@@ -142,11 +142,11 @@ A Maintenance Engineer should inspect **${risky[0].name}** immediately. Ensure t
 The station health score is degraded. I recommend the following operational interventions:
 
 ${active.map((a, i) => `**Priority ${i+1}: Resolve ${a.type.toUpperCase()} Issue**
-* **Trigger:** ${a.message}
-* **Impact:** ${a.impact}
-* **Action:** ${a.action}`).join('\n\n')}
+- **Trigger:** ${a.message}
+- **Impact:** ${a.impact}
+- **Action:** ${a.action}`).join('\n\n')}
 
-Please notify the Operations Manager and execute these tasks in order of critical severity.`;
+Please execute these tasks in order of critical severity.`;
   }
 
   // 6. Weather and weather impact
