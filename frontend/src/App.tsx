@@ -561,11 +561,11 @@ export default function App() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const lastBeepTimeRef = useRef<number>(0);
 
-  const playBeepSound = (freq = 750, duration = 0.1, type: OscillatorType = 'sine') => {
+  // Standard UI Interaction Beep (clicks / diagnostic self-tests)
+  const playBeepSound = (freq = 880, duration = 0.08, type: OscillatorType = 'triangle') => {
     if (!soundEnabled) return;
     const now = Date.now();
-    // Strict 1.2-second minimum gap between any beep sounds across the app
-    if (now - lastBeepTimeRef.current < 1200) return;
+    if (now - lastBeepTimeRef.current < 150) return;
     lastBeepTimeRef.current = now;
 
     try {
@@ -583,9 +583,8 @@ export default function App() {
       osc.type = type;
       osc.frequency.setValueAtTime(freq, ctx.currentTime);
 
-      // Smooth gain envelope (soft attack & exponential decay)
       gain.gain.setValueAtTime(0.001, ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.04, ctx.currentTime + 0.02);
+      gain.gain.linearRampToValueAtTime(0.05, ctx.currentTime + 0.01);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
 
       osc.connect(gain);
@@ -598,14 +597,59 @@ export default function App() {
     }
   };
 
-  // Dedicated single-timer alarm loop for emergency mode
+  // Tactical Base Emergency Siren (Dual-Tone Tactical Warning Pulse: 960Hz -> 760Hz)
+  const playEmergencySiren = () => {
+    if (!soundEnabled) return;
+    try {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
+
+      const now = ctx.currentTime;
+
+      // Tone 1: High alert pitch (960 Hz)
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sawtooth';
+      osc1.frequency.setValueAtTime(960, now);
+      gain1.gain.setValueAtTime(0.001, now);
+      gain1.gain.linearRampToValueAtTime(0.06, now + 0.015);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.14);
+
+      // Tone 2: Warning pitch (760 Hz) after 160ms delay
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sawtooth';
+      osc2.frequency.setValueAtTime(760, now + 0.16);
+      gain2.gain.setValueAtTime(0.001, now + 0.16);
+      gain2.gain.linearRampToValueAtTime(0.06, now + 0.175);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.30);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(now + 0.16);
+      osc2.stop(now + 0.30);
+    } catch (e) {
+      // Audio context blocked
+    }
+  };
+
+  // Dedicated Tactical Emergency Siren loop (pulses dual-tone siren every 2.2 seconds during Emergency Protocol)
   useEffect(() => {
     if (!soundEnabled || !emergencyMode) return;
 
-    // Pulse a single calm beep every 5 seconds during active emergency mode
+    playEmergencySiren();
+
     const alarmInterval = setInterval(() => {
-      playBeepSound(750, 0.1, 'sine');
-    }, 5000);
+      playEmergencySiren();
+    }, 2200);
 
     return () => clearInterval(alarmInterval);
   }, [emergencyMode, soundEnabled]);
